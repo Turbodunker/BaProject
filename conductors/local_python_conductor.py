@@ -50,6 +50,30 @@ class LocalPythonConductor(BaseConductor):
         except Exception as e:
             return False, str(e)
 
+    def translate_job(self, job_dir:str, job_type:str)->None:
+        """Function for a given conductor to translate a given job."""
+
+        job_id = os.path.basename(job_dir)
+        if(os.path.exists(f"test_job_output/{job_id}/submit.job")):
+            os.remove(f"test_job_output/{job_id}/submit.job")
+        #Write the .job file for slurm. Should be scheduled with sbatch in the "home"-directory when mounted.
+        with open(f"test_job_output/{job_id}/submit.job", "w+") as fp:
+            fp.write("#!/bin/bash\n")
+            fp.write("#SBATCH --job-name=submit_{job_id}.job\n")
+            fp.write("#SBATCH --output=slurmA.txt\n")
+            fp.write("OPATH=test_monitor_base/output;\n")
+            fp.write("cd base\n")
+            #Maybe split this to a seperate function if it grows much more..
+            match job_type:
+                case "papermill":
+                    fp.write(f"papermill test_job_output/{job_id}/job.ipynb > $OPATH/slurmA.txt\n")
+                case "python":
+                    fp.write(f"python3 test_job_output/{job_id}/job.py > $OPATH/slurmA.txt\n")
+                case "bash":
+                    fp.write(f"exec test_job_output/{job_id}/job.sh > $OPATH/slurmA.txt\n")
+            #TODO: Make sure the job is finished before unmounting
+            fp.write("umount -l $PWD")
+
     def execute(self, job_dir:str)->None:
         """Function to actually execute a Python job. This will read job 
         defintions from its meta file, update the meta file and attempt to 

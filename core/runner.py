@@ -208,8 +208,8 @@ class MeowRunner:
                             executed = True
                             #Get job_type for translation
                             job_type = job["job_type"]
-                            self.execute_job(conductor, job_dir)
-                            self.translate_job(conductor, job_dir, job_type)
+                            conductor.execute_job(conductor, job_dir)
+                            self.translate_job(job_dir, job_type)
                             break
                         # If multiple handlers then randomly pick one
                         elif len(valid_conductors) > 1:
@@ -218,7 +218,7 @@ class MeowRunner:
                             ]
                             executed = True
                             self.execute_job(conductor, job_dir)
-                            self.translate_job(conductor, job_dir, job_type)
+                            conductor.translate_job(job_dir, job_type)
                             break
 
                 # TODO determine something more useful to do here
@@ -256,20 +256,7 @@ class MeowRunner:
         #Write the .job file for slurm. Should be scheduled with sbatch in the "home"-directory when mounted.
         with open(f"test_job_output/{job_id}/submit.job", "w+") as fp:
             fp.write("#!/bin/bash\n")
-            fp.write("#SBATCH --job-name=submit_{job_id}.job\n")
-            fp.write("#SBATCH --output=slurmA.txt\n")
-            fp.write("OPATH=test_monitor_base/output;\n")
-            fp.write("cd base\n")
-            #Maybe split this to a seperate function if it grows much more..
-            match job_type:
-                case "papermill":
-                    fp.write(f"papermill test_job_output/{job_id}/job.ipynb > $OPATH/slurmA.txt\n")
-                case "python":
-                    fp.write(f"python3 test_job_output/{job_id}/job.py > $OPATH/slurmA.txt\n")
-                case "bash":
-                    fp.write(f"exec test_job_output/{job_id}/job.sh > $OPATH/slurmA.txt\n")
-            #TODO: Make sure the job is finished before unmounting
-            # fp.write("umount -l $PWD")
+            fp.write("exec $PWD/job.py\n")
 
             # subprocess.call(["dpipe", "/usr/lib/openssh/sftp-server", "=", "ssh", "mblom@192.168.0.24", "sshfs", ":/home/mblomqvist/Documents/project/meow_base/", "/home/mblom/base", "-o", "slave"])
             # subprocess.run(["/home/mblomqvist/Documents/project/connect.sh"])
