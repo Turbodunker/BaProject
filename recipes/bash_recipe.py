@@ -12,12 +12,12 @@ from meow_base.functionality.validation import check_type, valid_dict, \
     valid_string, valid_dir_path
 from meow_base.core.vars import DEBUG_INFO, DEFAULT_JOB_QUEUE_DIR, \
     VALID_VARIABLE_NAME_CHARS, EVENT_PATH, EVENT_RULE, EVENT_TYPE, JOB_ID, \
-    EVENT_TYPE_WATCHDOG, JOB_TYPE_BASH, JOB_PARAMETERS, WATCHDOG_HASH, \
-    WATCHDOG_BASE, META_FILE, STATUS_QUEUED, JOB_STATUS, \
+    EVENT_TYPE_WATCHDOG, JOB_TYPE_BASH, JOB_PARAMETERS, WATCHDOG_BASE, \
+    META_FILE, STATUS_QUEUED, JOB_STATUS, \
     get_base_file, get_job_file
 from meow_base.functionality.debug import setup_debugging, print_debug
-from meow_base.functionality.file_io import valid_path, make_dir, write_yaml, \
-    write_file, lines_to_string
+from meow_base.functionality.file_io import valid_path, make_dir, write_file, \
+    lines_to_string, threadsafe_write_status
 from meow_base.functionality.parameterisation import parameterize_bash_script
 from meow_base.functionality.meow import create_job, replace_keywords
 
@@ -65,13 +65,13 @@ class BashHandler(BaseHandler):
     # Where print messages are sent
     _print_target:Any
     def __init__(self, job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR, name:str="",
-            print:Any=sys.stdout, logging:int=0)->None:
+            print:Any=sys.stdout, logging:int=0, pause_time:int=5)->None:
         """BashHandler Constructor. This creates jobs to be executed as 
         bash scripts. This does not run as a continuous thread to 
         handle execution, but is invoked according to a factory pattern using 
         the handle function. Note that if this handler is given to a MeowRunner
         object, the job_queue_dir will be overwridden by its"""
-        super().__init__(name=name)
+        super().__init__(name=name, pause_time=pause_time)
         self._is_valid_job_queue_dir(job_queue_dir)
         self.job_queue_dir = job_queue_dir
         self._print_target, self.debug_level = setup_debugging(print, logging)
@@ -157,7 +157,7 @@ class BashHandler(BaseHandler):
 
         # write a status file to the job directory
         meta_file = os.path.join(job_dir, META_FILE)
-        write_yaml(meow_job, meta_file)
+        threadsafe_write_status(meow_job, meta_file)
 
         # parameterise recipe and write as executeable script
         base_script = parameterize_bash_script(
@@ -177,10 +177,10 @@ class BashHandler(BaseHandler):
         meow_job[JOB_STATUS] = STATUS_QUEUED
 
         # update the status file with queued status
-        write_yaml(meow_job, meta_file)
+        threadsafe_write_status(meow_job, meta_file)
         
         # Send job directory, as actual definitons will be read from within it
-        self.to_runner.send(job_dir)
+        self.send_job_to_runner(job_dir)
 
 
 def assemble_bash_job_script()->List[str]:

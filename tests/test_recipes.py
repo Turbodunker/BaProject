@@ -142,9 +142,9 @@ class PapermillHandlerTests(unittest.TestCase):
 
     # Test PapermillHandler will handle given events
     def testPapermillHandlerHandling(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = PapermillHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -180,8 +180,8 @@ class PapermillHandlerTests(unittest.TestCase):
 
         ph.handle(event)
 
-        if from_handler_reader.poll(3):
-            job_dir = from_handler_reader.recv()
+        if from_handler_to_job_reader.poll(3):
+            job_dir = from_handler_to_job_reader.recv()
 
         self.assertIsInstance(job_dir, str)
         self.assertTrue(os.path.exists(job_dir))
@@ -191,9 +191,9 @@ class PapermillHandlerTests(unittest.TestCase):
 
     # Test PapermillHandler will create enough jobs from single sweep
     def testPapermillHandlerHandlingSingleSweep(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = PapermillHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -234,8 +234,8 @@ class PapermillHandlerTests(unittest.TestCase):
         jobs = []
         recieving = True
         while recieving:
-            if from_handler_reader.poll(3):
-                jobs.append(from_handler_reader.recv())
+            if from_handler_to_job_reader.poll(3):
+                jobs.append(from_handler_to_job_reader.recv())
             else:
                 recieving = False
 
@@ -256,9 +256,9 @@ class PapermillHandlerTests(unittest.TestCase):
 
     # Test PapermillHandler will create enough jobs from multiple sweeps
     def testPapermillHandlerHandlingMultipleSweep(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = PapermillHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -304,8 +304,8 @@ class PapermillHandlerTests(unittest.TestCase):
         jobs = []
         recieving = True
         while recieving:
-            if from_handler_reader.poll(3):
-                jobs.append(from_handler_reader.recv())
+            if from_handler_to_job_reader.poll(3):
+                jobs.append(from_handler_to_job_reader.recv())
             else:
                 recieving = False
 
@@ -477,6 +477,90 @@ class PapermillHandlerTests(unittest.TestCase):
         self.assertEqual(recipe.name, "name")
         self.assertEqual(recipe.recipe, COMPLETE_NOTEBOOK)
 
+    # Test handler starts and stops appropriatly
+    def testPapermillHandlerStartStop(self)->None:
+        ph = PapermillHandler(job_queue_dir=TEST_JOB_QUEUE)
+        from_handler_to_event_reader, from_handler_to_event_writer = Pipe()
+        ph.to_runner_event = from_handler_to_event_writer
+
+        with self.assertRaises(AttributeError):
+            self.assertFalse(ph._handle_thread.is_alive())
+
+        ph.start()
+        if from_handler_to_event_reader.poll(3):
+            msg = from_handler_to_event_reader.recv()
+
+        self.assertTrue(ph._handle_thread.is_alive())
+        self.assertEqual(msg, 1)
+
+        ph.stop()
+
+        self.assertFalse(ph._handle_thread.is_alive())
+
+    # Test handler handles given events
+    def testPapermillHandlerOngoingHandling(self)->None:
+        ph = PapermillHandler(job_queue_dir=TEST_JOB_QUEUE)
+        handler_to_event_us, handler_to_event_them = Pipe(duplex=True)
+        handler_to_job_us, handler_to_job_them = Pipe()
+        ph.to_runner_event = handler_to_event_them
+        ph.to_runner_job = handler_to_job_them
+
+        with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
+            f.write("Data")
+
+        pattern_one = FileEventPattern(
+            "pattern_one", "A", "recipe_one", "file_one")
+        recipe = JupyterNotebookRecipe(
+            "recipe_one", COMPLETE_NOTEBOOK)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+        recipes = {
+            recipe.name: recipe,
+        }
+
+        rules = create_rules(patterns, recipes)
+        self.assertEqual(len(rules), 1)
+        _, rule = rules.popitem()
+        self.assertIsInstance(rule, Rule)
+
+        event = {
+            EVENT_TYPE: EVENT_TYPE_WATCHDOG,
+            EVENT_PATH: os.path.join(TEST_MONITOR_BASE, "A"),
+            WATCHDOG_BASE: TEST_MONITOR_BASE,
+            EVENT_RULE: rule,
+            WATCHDOG_HASH: get_hash(
+                os.path.join(TEST_MONITOR_BASE, "A"), SHA256
+            )
+        }
+
+        with self.assertRaises(AttributeError):
+            self.assertFalse(ph._handle_thread.is_alive())
+
+        ph.start()
+        if handler_to_event_us.poll(3):
+            msg = handler_to_event_us.recv()
+            self.assertEqual(msg, 1)
+
+            handler_to_event_us.send(event)
+
+        if handler_to_job_us.poll(3):
+            job_dir = handler_to_job_us.recv()
+
+        if handler_to_event_us.poll(3):
+            msg = handler_to_event_us.recv()
+            self.assertEqual(msg, 1)
+
+        ph.stop()
+
+        self.assertIsInstance(job_dir, str)
+        self.assertTrue(os.path.exists(job_dir))
+
+        job = read_yaml(os.path.join(job_dir, META_FILE))
+        valid_job(job)
+
+
 class PythonTests(unittest.TestCase):
     def setUp(self)->None:
         super().setUp()
@@ -560,9 +644,9 @@ class PythonHandlerTests(unittest.TestCase):
 
     # Test PythonHandler will handle given events
     def testPythonHandlerHandling(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = PythonHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -598,8 +682,8 @@ class PythonHandlerTests(unittest.TestCase):
 
         ph.handle(event)
 
-        if from_handler_reader.poll(3):
-            job_dir = from_handler_reader.recv()
+        if from_handler_to_job_reader.poll(3):
+            job_dir = from_handler_to_job_reader.recv()
 
         self.assertIsInstance(job_dir, str)
         self.assertTrue(os.path.exists(job_dir))
@@ -609,9 +693,9 @@ class PythonHandlerTests(unittest.TestCase):
 
     # Test PythonHandler will create enough jobs from single sweep
     def testPythonHandlerHandlingSingleSweep(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = PythonHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -652,8 +736,8 @@ class PythonHandlerTests(unittest.TestCase):
         jobs = []
         recieving = True
         while recieving:
-            if from_handler_reader.poll(3):
-                jobs.append(from_handler_reader.recv())
+            if from_handler_to_job_reader.poll(3):
+                jobs.append(from_handler_to_job_reader.recv())
             else:
                 recieving = False
 
@@ -674,9 +758,9 @@ class PythonHandlerTests(unittest.TestCase):
 
     # Test PythonHandler will create enough jobs from multiple sweeps
     def testPythonHandlerHandlingMultipleSweep(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = PythonHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -722,8 +806,8 @@ class PythonHandlerTests(unittest.TestCase):
         jobs = []
         recieving = True
         while recieving:
-            if from_handler_reader.poll(3):
-                jobs.append(from_handler_reader.recv())
+            if from_handler_to_job_reader.poll(3):
+                jobs.append(from_handler_to_job_reader.recv())
             else:
                 recieving = False
 
@@ -840,7 +924,6 @@ class PythonHandlerTests(unittest.TestCase):
 
         self.assertEqual(result, "124937.5")
 
-
     # Test jobFunc doesn't execute with no args
     def testJobFuncBadArgs(self)->None:
         try:
@@ -889,6 +972,90 @@ class PythonHandlerTests(unittest.TestCase):
             EVENT_RULE: rule
         })
         self.assertTrue(status)
+
+    # Test handler starts and stops appropriatly
+    def testPythonHandlerStartStop(self)->None:
+        ph = PythonHandler(job_queue_dir=TEST_JOB_QUEUE)
+        from_handler_to_event_reader, from_handler_to_event_writer = Pipe()
+        ph.to_runner_event = from_handler_to_event_writer
+
+        with self.assertRaises(AttributeError):
+            self.assertFalse(ph._handle_thread.is_alive())
+
+        ph.start()
+        if from_handler_to_event_reader.poll(3):
+            msg = from_handler_to_event_reader.recv()
+
+        self.assertTrue(ph._handle_thread.is_alive())
+        self.assertEqual(msg, 1)
+
+        ph.stop()
+
+        self.assertFalse(ph._handle_thread.is_alive())
+
+    # Test handler handles given events
+    def testPythonHandlerOngoingHandling(self)->None:
+        ph = PythonHandler(job_queue_dir=TEST_JOB_QUEUE)
+        handler_to_event_us, handler_to_event_them = Pipe(duplex=True)
+        handler_to_job_us, handler_to_job_them = Pipe()
+        ph.to_runner_event = handler_to_event_them
+        ph.to_runner_job = handler_to_job_them
+
+        with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
+            f.write("Data")
+
+        pattern_one = FileEventPattern(
+            "pattern_one", "A", "recipe_one", "file_one")
+        recipe = PythonRecipe(
+            "recipe_one", COMPLETE_PYTHON_SCRIPT)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+        recipes = {
+            recipe.name: recipe,
+        }
+
+        rules = create_rules(patterns, recipes)
+        self.assertEqual(len(rules), 1)
+        _, rule = rules.popitem()
+        self.assertIsInstance(rule, Rule)
+
+        event = {
+            EVENT_TYPE: EVENT_TYPE_WATCHDOG,
+            EVENT_PATH: os.path.join(TEST_MONITOR_BASE, "A"),
+            WATCHDOG_BASE: TEST_MONITOR_BASE,
+            EVENT_RULE: rule,
+            WATCHDOG_HASH: get_hash(
+                os.path.join(TEST_MONITOR_BASE, "A"), SHA256
+            )
+        }
+
+        with self.assertRaises(AttributeError):
+            self.assertFalse(ph._handle_thread.is_alive())
+
+        ph.start()
+        if handler_to_event_us.poll(3):
+            msg = handler_to_event_us.recv()
+            self.assertEqual(msg, 1)
+
+            handler_to_event_us.send(event)
+
+        if handler_to_job_us.poll(3):
+            job_dir = handler_to_job_us.recv()
+
+        if handler_to_event_us.poll(3):
+            msg = handler_to_event_us.recv()
+            self.assertEqual(msg, 1)
+
+        ph.stop()
+
+        self.assertIsInstance(job_dir, str)
+        self.assertTrue(os.path.exists(job_dir))
+
+        job = read_yaml(os.path.join(job_dir, META_FILE))
+        valid_job(job)
+
 
 class BashTests(unittest.TestCase):
     def setUp(self)->None:
@@ -973,9 +1140,9 @@ class BashHandlerTests(unittest.TestCase):
 
     # Test BashHandler will handle given events
     def testBashHandlerHandling(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = BashHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -1011,8 +1178,8 @@ class BashHandlerTests(unittest.TestCase):
 
         ph.handle(event)
 
-        if from_handler_reader.poll(3):
-            job_dir = from_handler_reader.recv()
+        if from_handler_to_job_reader.poll(3):
+            job_dir = from_handler_to_job_reader.recv()
 
         self.assertIsInstance(job_dir, str)
         self.assertTrue(os.path.exists(job_dir))
@@ -1022,9 +1189,9 @@ class BashHandlerTests(unittest.TestCase):
 
     # Test BashHandler will create enough jobs from single sweep
     def testBashHandlerHandlingSingleSweep(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = BashHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -1065,8 +1232,8 @@ class BashHandlerTests(unittest.TestCase):
         jobs = []
         recieving = True
         while recieving:
-            if from_handler_reader.poll(3):
-                jobs.append(from_handler_reader.recv())
+            if from_handler_to_job_reader.poll(3):
+                jobs.append(from_handler_to_job_reader.recv())
             else:
                 recieving = False
 
@@ -1087,9 +1254,9 @@ class BashHandlerTests(unittest.TestCase):
 
     # Test BashHandler will create enough jobs from multiple sweeps
     def testBashHandlerHandlingMultipleSweep(self)->None:
-        from_handler_reader, from_handler_writer = Pipe()
+        from_handler_to_job_reader, from_handler_to_job_writer = Pipe()
         ph = BashHandler(job_queue_dir=TEST_JOB_QUEUE)
-        ph.to_runner = from_handler_writer
+        ph.to_runner_job = from_handler_to_job_writer
         
         with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
             f.write("Data")
@@ -1135,8 +1302,8 @@ class BashHandlerTests(unittest.TestCase):
         jobs = []
         recieving = True
         while recieving:
-            if from_handler_reader.poll(3):
-                jobs.append(from_handler_reader.recv())
+            if from_handler_to_job_reader.poll(3):
+                jobs.append(from_handler_to_job_reader.recv())
             else:
                 recieving = False
 
@@ -1299,3 +1466,86 @@ class BashHandlerTests(unittest.TestCase):
             EVENT_RULE: rule
         })
         self.assertTrue(status)
+
+    # Test handler starts and stops appropriatly
+    def testBashHandlerStartStop(self)->None:
+        ph = BashHandler(job_queue_dir=TEST_JOB_QUEUE)
+        from_handler_to_event_reader, from_handler_to_event_writer = Pipe()
+        ph.to_runner_event = from_handler_to_event_writer
+
+        with self.assertRaises(AttributeError):
+            self.assertFalse(ph._handle_thread.is_alive())
+
+        ph.start()
+        if from_handler_to_event_reader.poll(3):
+            msg = from_handler_to_event_reader.recv()
+
+        self.assertTrue(ph._handle_thread.is_alive())
+        self.assertEqual(msg, 1)
+
+        ph.stop()
+
+        self.assertFalse(ph._handle_thread.is_alive())
+
+    # Test handler handles given events
+    def testBashHandlerOngoingHandling(self)->None:
+        ph = BashHandler(job_queue_dir=TEST_JOB_QUEUE)
+        handler_to_event_us, handler_to_event_them = Pipe(duplex=True)
+        handler_to_job_us, handler_to_job_them = Pipe()
+        ph.to_runner_event = handler_to_event_them
+        ph.to_runner_job = handler_to_job_them
+
+        with open(os.path.join(TEST_MONITOR_BASE, "A"), "w") as f:
+            f.write("Data")
+
+        pattern_one = FileEventPattern(
+            "pattern_one", "A", "recipe_one", "file_one")
+        recipe = BashRecipe(
+            "recipe_one", COMPLETE_BASH_SCRIPT)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+        recipes = {
+            recipe.name: recipe,
+        }
+
+        rules = create_rules(patterns, recipes)
+        self.assertEqual(len(rules), 1)
+        _, rule = rules.popitem()
+        self.assertIsInstance(rule, Rule)
+
+        event = {
+            EVENT_TYPE: EVENT_TYPE_WATCHDOG,
+            EVENT_PATH: os.path.join(TEST_MONITOR_BASE, "A"),
+            WATCHDOG_BASE: TEST_MONITOR_BASE,
+            EVENT_RULE: rule,
+            WATCHDOG_HASH: get_hash(
+                os.path.join(TEST_MONITOR_BASE, "A"), SHA256
+            )
+        }
+
+        with self.assertRaises(AttributeError):
+            self.assertFalse(ph._handle_thread.is_alive())
+
+        ph.start()
+        if handler_to_event_us.poll(3):
+            msg = handler_to_event_us.recv()
+            self.assertEqual(msg, 1)
+
+            handler_to_event_us.send(event)
+
+        if handler_to_job_us.poll(3):
+            job_dir = handler_to_job_us.recv()
+
+        if handler_to_event_us.poll(3):
+            msg = handler_to_event_us.recv()
+            self.assertEqual(msg, 1)
+
+        ph.stop()
+
+        self.assertIsInstance(job_dir, str)
+        self.assertTrue(os.path.exists(job_dir))
+
+        job = read_yaml(os.path.join(job_dir, META_FILE))
+        valid_job(job)

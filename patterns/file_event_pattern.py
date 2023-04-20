@@ -10,7 +10,6 @@ import threading
 import sys
 import os
 
-from copy import deepcopy
 from fnmatch import translate
 from re import match
 from time import time, sleep
@@ -31,7 +30,7 @@ from meow_base.core.vars import VALID_RECIPE_NAME_CHARS, \
     DIR_RETROACTIVE_EVENT
 from meow_base.functionality.debug import setup_debugging, print_debug
 from meow_base.functionality.hashing import get_hash
-from meow_base.functionality.meow import create_rule, create_watchdog_event
+from meow_base.functionality.meow import create_watchdog_event
 
 # Events that are monitored by default
 _DEFAULT_MASK = [
@@ -161,13 +160,6 @@ class WatchdogMonitor(BaseMonitor):
     debug_level:int
     # Where print messages are sent
     _print_target:Any
-    #A lock to solve race conditions on '_patterns'
-    _patterns_lock:threading.Lock
-    #A lock to solve race conditions on '_recipes'
-    _recipes_lock:threading.Lock
-    #A lock to solve race conditions on '_rules'
-    _rules_lock:threading.Lock
-
     def __init__(self, base_dir:str, patterns:Dict[str,FileEventPattern], 
             recipes:Dict[str,BaseRecipe], autostart=False, settletime:int=1, 
             name:str="", print:Any=sys.stdout, logging:int=0)->None:
@@ -180,9 +172,6 @@ class WatchdogMonitor(BaseMonitor):
         self.base_dir = base_dir
         check_type(settletime, int, hint="WatchdogMonitor.settletime")
         self._print_target, self.debug_level = setup_debugging(print, logging)       
-        self._patterns_lock = threading.Lock()
-        self._recipes_lock = threading.Lock()
-        self._rules_lock = threading.Lock()
         self.event_handler = WatchdogEventHandler(self, settletime=settletime)
         self.monitor = Observer()
         self.monitor.schedule(
@@ -256,7 +245,7 @@ class WatchdogMonitor(BaseMonitor):
                         f"Event at {src_path} hit rule {rule.name}", 
                         DEBUG_INFO)
                     # Send the event to the runner
-                    self.to_runner.send(meow_event)
+                    self.send_event_to_runner(meow_event)
 
         except Exception as e:
             self._rules_lock.release()
@@ -264,248 +253,6 @@ class WatchdogMonitor(BaseMonitor):
 
         self._rules_lock.release()
 
-    def add_pattern(self, pattern:FileEventPattern)->None:
-        """Function to add a pattern to the current definitions. Any rules 
-        that can be possibly created from that pattern will be automatically 
-        created."""
-        check_type(pattern, FileEventPattern, hint="add_pattern.pattern")
-        self._patterns_lock.acquire()
-        try:
-            if pattern.name in self._patterns:
-                raise KeyError(f"An entry for Pattern '{pattern.name}' "
-                    "already exists. Do you intend to update instead?")
-            self._patterns[pattern.name] = pattern
-        except Exception as e:
-            self._patterns_lock.release()
-            raise e            
-        self._patterns_lock.release()
-
-        self._identify_new_rules(new_pattern=pattern)
-
-    def update_pattern(self, pattern:FileEventPattern)->None:
-        """Function to update a pattern in the current definitions. Any rules 
-        created from that pattern will be automatically updated."""
-        check_type(pattern, FileEventPattern, hint="update_pattern.pattern")
-        self.remove_pattern(pattern.name)
-        self.add_pattern(pattern)
-
-    def remove_pattern(self, pattern: Union[str,FileEventPattern])->None:
-        """Function to remove a pattern from the current definitions. Any rules 
-        that will be no longer valid will be automatically removed."""
-        check_type(
-            pattern, 
-            str, 
-            alt_types=[FileEventPattern], 
-            hint="remove_pattern.pattern"
-        )
-        lookup_key = pattern
-        if isinstance(lookup_key, FileEventPattern):
-            lookup_key = pattern.name
-        self._patterns_lock.acquire()
-        try:
-            if lookup_key not in self._patterns:
-                raise KeyError(f"Cannot remote Pattern '{lookup_key}' as it "
-                    "does not already exist")
-            self._patterns.pop(lookup_key)
-        except Exception as e:
-            self._patterns_lock.release()
-            raise e 
-        self._patterns_lock.release()
-
-        if isinstance(pattern, FileEventPattern):
-            self._identify_lost_rules(lost_pattern=pattern.name)
-        else:
-            self._identify_lost_rules(lost_pattern=pattern)
-        
-    def get_patterns(self)->Dict[str,FileEventPattern]:
-        """Function to get a dict of the currently defined patterns of the 
-        monitor. Note that the result is deep-copied, and so can be manipulated
-        without directly manipulating the internals of the monitor."""
-        to_return = {}
-        self._patterns_lock.acquire()
-        try:
-            to_return = deepcopy(self._patterns)
-        except Exception as e:
-            self._patterns_lock.release()
-            raise e
-        self._patterns_lock.release()
-        return to_return
-
-    def add_recipe(self, recipe: BaseRecipe)->None:
-        """Function to add a recipe to the current definitions. Any rules 
-        that can be possibly created from that recipe will be automatically 
-        created."""
-        check_type(recipe, BaseRecipe, hint="add_recipe.recipe")
-        self._recipes_lock.acquire()
-        try:
-            if recipe.name in self._recipes:
-                raise KeyError(f"An entry for Recipe '{recipe.name}' already "
-                    "exists. Do you intend to update instead?")
-            self._recipes[recipe.name] = recipe
-        except Exception as e:
-            self._recipes_lock.release()
-            raise e
-        self._recipes_lock.release()
-
-        self._identify_new_rules(new_recipe=recipe)
-
-    def update_recipe(self, recipe: BaseRecipe)->None:
-        """Function to update a recipe in the current definitions. Any rules 
-        created from that recipe will be automatically updated."""
-        check_type(recipe, BaseRecipe, hint="update_recipe.recipe")
-        self.remove_recipe(recipe.name)
-        self.add_recipe(recipe)
-    
-    def remove_recipe(self, recipe:Union[str,BaseRecipe])->None:
-        """Function to remove a recipe from the current definitions. Any rules 
-        that will be no longer valid will be automatically removed."""
-        check_type(
-            recipe, 
-            str, 
-            alt_types=[BaseRecipe], 
-            hint="remove_recipe.recipe"
-        )
-        lookup_key = recipe
-        if isinstance(lookup_key, BaseRecipe):
-            lookup_key = recipe.name
-        self._recipes_lock.acquire()
-        try:
-            # Check that recipe has not already been deleted
-            if lookup_key not in self._recipes:
-                raise KeyError(f"Cannot remote Recipe '{lookup_key}' as it "
-                    "does not already exist")
-            self._recipes.pop(lookup_key)
-        except Exception as e:
-            self._recipes_lock.release()
-            raise e
-        self._recipes_lock.release()
-
-        if isinstance(recipe, BaseRecipe):
-            self._identify_lost_rules(lost_recipe=recipe.name)
-        else:
-            self._identify_lost_rules(lost_recipe=recipe)
-
-    def get_recipes(self)->Dict[str,BaseRecipe]:
-        """Function to get a dict of the currently defined recipes of the 
-        monitor. Note that the result is deep-copied, and so can be manipulated
-        without directly manipulating the internals of the monitor."""
-        to_return = {}
-        self._recipes_lock.acquire()
-        try:
-            to_return = deepcopy(self._recipes)
-        except Exception as e:
-            self._recipes_lock.release()
-            raise e
-        self._recipes_lock.release()
-        return to_return
-    
-    def get_rules(self)->Dict[str,Rule]:
-        """Function to get a dict of the currently defined rules of the 
-        monitor. Note that the result is deep-copied, and so can be manipulated
-        without directly manipulating the internals of the monitor."""
-        to_return = {}
-        self._rules_lock.acquire()
-        try:
-            to_return = deepcopy(self._rules)
-        except Exception as e:
-            self._rules_lock.release()
-            raise e
-        self._rules_lock.release()
-        return to_return
-
-    def _identify_new_rules(self, new_pattern:FileEventPattern=None, 
-            new_recipe:BaseRecipe=None)->None:
-        """Function to determine if a new rule can be created given a new 
-        pattern or recipe, in light of other existing patterns or recipes in 
-        the monitor."""
-
-        if new_pattern:
-            self._patterns_lock.acquire()
-            self._recipes_lock.acquire()
-            try:
-                # Check in case pattern has been deleted since function called
-                if new_pattern.name not in self._patterns:
-                    self._patterns_lock.release()
-                    self._recipes_lock.release()
-                    return
-                # If pattern specifies recipe that already exists, make a rule
-                if new_pattern.recipe in self._recipes:
-                    self._create_new_rule(
-                        new_pattern,
-                        self._recipes[new_pattern.recipe],
-                    )
-            except Exception as e:
-                self._patterns_lock.release()
-                self._recipes_lock.release()
-                raise e
-            self._patterns_lock.release()
-            self._recipes_lock.release()
-
-        if new_recipe:
-            self._patterns_lock.acquire()
-            self._recipes_lock.acquire()
-            try:
-                # Check in case recipe has been deleted since function called
-                if new_recipe.name not in self._recipes:
-                    self._patterns_lock.release()
-                    self._recipes_lock.release()
-                    return
-                # If recipe is specified by existing pattern, make a rule
-                for pattern in self._patterns.values():
-                    if pattern.recipe == new_recipe.name:
-                        self._create_new_rule(
-                            pattern,
-                            new_recipe,
-                        )
-            except Exception as e:
-                self._patterns_lock.release()
-                self._recipes_lock.release()
-                raise e
-            self._patterns_lock.release()
-            self._recipes_lock.release()
-
-    def _identify_lost_rules(self, lost_pattern:str=None, 
-            lost_recipe:str=None)->None:
-        """Function to remove rules that should be deleted in response to a 
-        pattern or recipe having been deleted."""
-        to_delete = []
-        self._rules_lock.acquire()
-        try:
-            # Identify any offending rules
-            for name, rule in self._rules.items():
-                if lost_pattern and rule.pattern.name == lost_pattern:
-                    to_delete.append(name)
-                if lost_recipe and rule.recipe.name == lost_recipe:
-                    to_delete.append(name)
-            # Now delete them
-            for delete in to_delete:
-                if delete in self._rules.keys():
-                    self._rules.pop(delete)
-        except Exception as e:
-            self._rules_lock.release()
-            raise e
-        self._rules_lock.release()
-
-    def _create_new_rule(self, pattern:FileEventPattern, 
-            recipe:BaseRecipe)->None:
-        """Function to create a new rule from a given pattern and recipe. This 
-        will only be called to create rules at runtime, as rules are 
-        automatically created at initialisation using the  same 'create_rule' 
-        function called here."""
-        rule = create_rule(pattern, recipe)
-        self._rules_lock.acquire()
-        try:
-            if rule.name in self._rules:
-                raise KeyError("Cannot create Rule with name of "
-                    f"'{rule.name}' as already in use")
-            self._rules[rule.name] = rule
-        except Exception as e:
-            self._rules_lock.release()
-            raise e
-        self._rules_lock.release()
-
-        self._apply_retroactive_rule(rule)
-        
     def _is_valid_base_dir(self, base_dir:str)->None:
         """Validation check for 'base_dir' variable from main constructor. Is 
         automatically called during initialisation."""
@@ -521,11 +268,11 @@ class WatchdogMonitor(BaseMonitor):
         automatically called during initialisation."""
         valid_dict(recipes, str, BaseRecipe, min_length=0, strict=False)
 
-    def _apply_retroactive_rules(self)->None:
-        """Function to determine if any rules should be applied to the existing 
-        file structure, were the file structure created/modified now."""
-        for rule in self._rules.values():
-            self._apply_retroactive_rule(rule)
+    def _get_valid_pattern_types(self)->List[type]:
+        return [FileEventPattern]
+
+    def _get_valid_recipe_types(self)->List[type]:
+        return [BaseRecipe]
 
     def _apply_retroactive_rule(self, rule:Rule)->None:
         """Function to determine if a rule should be applied to the existing 
@@ -559,12 +306,18 @@ class WatchdogMonitor(BaseMonitor):
                         f"Retroactive event for file at at {globble} hit rule "
                         f"{rule.name}", DEBUG_INFO)
                     # Send it to the runner
-                    self.to_runner.send(meow_event)
+                    self.send_event_to_runner(meow_event)
 
         except Exception as e:
             self._rules_lock.release()
             raise e
         self._rules_lock.release()
+
+    def _apply_retroactive_rules(self)->None:
+        """Function to determine if any rules should be applied to the existing 
+        file structure, were the file structure created/modified now."""
+        for rule in self._rules.values():
+            self._apply_retroactive_rule(rule)
 
 
 class WatchdogEventHandler(PatternMatchingEventHandler):

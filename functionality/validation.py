@@ -48,6 +48,13 @@ def check_type(variable:Any, expected_type:Type, alt_types:List[Type]=[],
             msg = f"Expected type(s) are '{type_list}', got {type(variable)}"
         raise TypeError(msg)
 
+def check_types(variable:Any, expected_types:List[Type], or_none:bool=False, 
+        hint:str="")->None:
+    """Checks if a given variable is one of the expected types. Raises 
+    TypeError or ValueError as appropriate if any issues are encountered."""
+    check_type(variable, expected_types[0], alt_types=expected_types[1:],
+                or_none=or_none, hint=hint)
+
 def check_callable(call:Any, hint:str="")->None:
     """Checks if a given variable is a callable function. Raises TypeError if 
     not."""
@@ -120,7 +127,6 @@ def valid_string(variable:str, valid_chars:str, min_length:int=1, hint:str=""
                       f"are: {valid_chars}"
             raise ValueError(msg)
 
-
 def valid_dict(variable:Dict[Any, Any], key_type:Type, value_type:Type, 
         required_keys:List[Any]=[], optional_keys:List[Any]=[], 
         strict:bool=True, min_length:int=1, hint:str="")->None:
@@ -153,6 +159,54 @@ def valid_dict(variable:Dict[Any, Any], key_type:Type, value_type:Type,
         if value_type != Any and not isinstance(v, value_type):
             raise TypeError(f"Value {v} {hint}had unexpected type '{type(v)}' "
                 f"rather than expected '{value_type}' in dict '{variable}'")
+
+    # Check all required keys present
+    for rk in required_keys:
+        if rk not in variable.keys():
+            raise KeyError(f"Missing required key '{rk}' from dict "
+                f"'{variable}' {hint}.")
+    
+    # If strict checking, enforce that only required and optional keys are 
+    # present
+    if strict:
+        for k in variable.keys():
+            if k not in required_keys and k not in optional_keys:
+                raise ValueError(f"Unexpected key '{k}' {hint}should not be "
+                                 f"present in dict '{variable}'")
+
+def valid_dict_multiple_types(variable:Dict[Any, Any], key_type:Type, 
+        value_types:List[Type], required_keys:List[Any]=[], 
+        optional_keys:List[Any]=[], strict:bool=True, min_length:int=1, 
+        hint:str="")->None:
+    """Checks that a given dictionary is valid. Key and Value types are 
+    enforced, as are required and optional keys. Will raise ValueError, 
+    TypeError or KeyError depending on the problem encountered."""
+    # Validate inputs
+    check_type(variable, Dict, hint=hint)
+    check_type(key_type, Type, alt_types=[_SpecialForm], hint=hint)
+    valid_list(value_types, Type, alt_types=[_SpecialForm], hint=hint)
+    check_type(required_keys, list, hint=hint)
+    check_type(optional_keys, list, hint=hint)
+    check_type(strict, bool, hint=hint)
+
+    if hint:
+        hint = f"in '{hint}' "
+
+    # Check dict meets minimum length
+    if len(variable) < min_length:
+        raise ValueError(
+            f"Dictionary '{variable}' {hint}is below minimum length of "
+            f"{min_length}"
+        )
+
+    # Check key and value types
+    for k, v in variable.items():
+        if key_type != Any and not isinstance(k, key_type):
+            raise TypeError(f"Key {k} {hint}had unexpected type '{type(k)}' "
+                f"rather than expected '{key_type}' in dict '{variable}'")
+        if Any not in value_types and type(v) not in value_types:
+            raise TypeError(f"Value {v} {hint}had unexpected type '{type(v)}' "
+                f"rather than expected '{value_types}' in dict '{variable}'")
 
     # Check all required keys present
     for rk in required_keys:
@@ -300,6 +354,18 @@ def valid_non_existing_path(variable:str, allow_base:bool=False, hint:str=""
                   "not exist."
         else:
             msg = f"Route to requested path '{variable}' does not exist."
+        raise ValueError(msg)
+
+def valid_natural(num:int, hint:str="")->None:
+    """Check a given value is a natural number. Will raise a ValueError if not."""
+    check_type(num, int, hint=hint)
+
+    if num < 0:
+        if hint :
+            msg = f"Value {num} in {hint} is not a natural number."
+        else:
+            msg = f"Value {num} is not a natural number."
+
         raise ValueError(msg)
 
 # TODO add validation for requirement functions

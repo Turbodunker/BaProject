@@ -227,7 +227,7 @@ class WatchdogMonitorTests(unittest.TestCase):
         }
 
         wm = WatchdogMonitor(TEST_MONITOR_BASE, patterns, recipes)
-        wm.to_runner = from_monitor_writer
+        wm.to_runner_event = from_monitor_writer
 
         rules = wm.get_rules()
 
@@ -291,7 +291,7 @@ class WatchdogMonitorTests(unittest.TestCase):
         rule = rules[list(rules.keys())[0]]
 
         from_monitor_reader, from_monitor_writer = Pipe()
-        wm.to_runner = from_monitor_writer
+        wm.to_runner_event = from_monitor_writer
    
         wm.start()
 
@@ -356,7 +356,7 @@ class WatchdogMonitorTests(unittest.TestCase):
         rule = rules[list(rules.keys())[0]]
 
         from_monitor_reader, from_monitor_writer = Pipe()
-        wm.to_runner = from_monitor_writer
+        wm.to_runner_event = from_monitor_writer
    
         wm.start()
 
@@ -437,7 +437,7 @@ class WatchdogMonitorTests(unittest.TestCase):
         rule = rules[list(rules.keys())[0]]
 
         from_monitor_reader, from_monitor_writer = Pipe()
-        wm.to_runner = from_monitor_writer
+        wm.to_runner_event = from_monitor_writer
    
         wm.start()
 
@@ -508,7 +508,7 @@ class WatchdogMonitorTests(unittest.TestCase):
         rule = rules[list(rules.keys())[0]]
 
         from_monitor_reader, from_monitor_writer = Pipe()
-        wm.to_runner = from_monitor_writer
+        wm.to_runner_event = from_monitor_writer
    
         wm.start()
 

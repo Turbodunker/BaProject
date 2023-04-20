@@ -4,6 +4,7 @@ This file contains functions for reading and writing different types of files.
 Author(s): David Marchant
 """
 
+import fcntl
 import json
 import yaml
 
@@ -11,6 +12,9 @@ from os import makedirs, remove, rmdir, walk
 from os.path import exists, isfile, join
 from typing import Any, Dict, List
 
+from meow_base.core.vars import JOB_END_TIME, JOB_ERROR, JOB_STATUS, \
+    STATUS_FAILED, STATUS_DONE, JOB_CREATE_TIME, JOB_START_TIME, \
+    STATUS_SKIPPED, LOCK_EXT
 from meow_base.functionality.validation import valid_path
 
 
@@ -93,6 +97,68 @@ def write_yaml(source:Any, filename:str):
     """
     with open(filename, 'w') as param_file:
         yaml.dump(source, param_file, default_flow_style=False)
+
+def threadsafe_read_status(filepath:str):
+    lock_path = filepath + LOCK_EXT
+    lock_handle = open(lock_path, 'a')
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+
+    try:
+        status = read_yaml(filepath)
+    except Exception as e:
+        lock_handle.close()
+        raise e
+
+    lock_handle.close()
+
+    return status
+
+def threadsafe_write_status(source:dict[str,Any], filepath:str):
+    lock_path = filepath + LOCK_EXT
+    lock_handle = open(lock_path, 'a')
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+
+    try:
+        write_yaml(source, filepath)
+    except Exception as e:
+        lock_handle.close()
+        raise e
+
+    lock_handle.close()
+
+def threadsafe_update_status(updates:dict[str,Any], filepath:str):
+    lock_path = filepath + LOCK_EXT
+    lock_handle = open(lock_path, 'a')
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+
+    try:
+        status = read_yaml(filepath)
+
+        for k, v in status.items():
+            if k in updates:
+                # Do not overwrite final job status
+                if k == JOB_STATUS \
+                        and v in [STATUS_DONE, STATUS_FAILED, STATUS_SKIPPED]:
+                    continue
+                # Do not overwrite an existing time
+                elif k in [JOB_START_TIME, JOB_CREATE_TIME, JOB_END_TIME]:
+                    continue
+                # Do not overwrite an existing error messages
+                elif k == JOB_ERROR:
+                    updates[k] = f"{v} {updates[k]}"
+
+                status[k] = updates[k]
+            
+        for k, v in updates.items():
+            if k not in status:
+                status[k] = v
+
+        write_yaml(status, filepath)
+    except Exception as e:
+        lock_handle.close()
+        raise e
+
+    lock_handle.close()
 
 def read_notebook(filepath:str):
     valid_path(filepath, extension="ipynb")

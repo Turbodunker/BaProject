@@ -6,9 +6,10 @@ Author(s): David Marchant
 import os
 
 from distutils.dir_util import copy_tree
+from typing import List
 
 from meow_base.core.vars import DEFAULT_JOB_OUTPUT_DIR, \
-    DEFAULT_JOB_QUEUE_DIR
+    DEFAULT_JOB_QUEUE_DIR, LOCK_EXT
 from meow_base.functionality.file_io import make_dir, rmtree
 from meow_base.patterns.file_event_pattern import FileEventPattern
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
@@ -29,21 +30,32 @@ def setup():
     make_dir(DEFAULT_JOB_QUEUE_DIR, ensure_clean=True)
 
 # def teardown():
-    # rmtree(TEST_DIR)
-    # rmtree(TEST_MONITOR_BASE)
-    # rmtree(TEST_JOB_QUEUE)
-    # rmtree(TEST_JOB_OUTPUT)
-    # rmtree(DEFAULT_JOB_OUTPUT_DIR)
-    # rmtree(DEFAULT_JOB_QUEUE_DIR)
-    # rmtree("first")
-    # if os.path.exists("temp_phantom_info.h5"):
-    #     os.remove("temp_phantom_info.h5")
-    # if os.path.exists("temp_phantom.h5"):
-    #     os.remove("temp_phantom.h5")
+#     rmtree(TEST_DIR)
+#     rmtree(TEST_MONITOR_BASE)
+#     rmtree(TEST_JOB_QUEUE)
+#     rmtree(TEST_JOB_OUTPUT)
+#     rmtree(DEFAULT_JOB_OUTPUT_DIR)
+#     rmtree(DEFAULT_JOB_QUEUE_DIR)
+#     rmtree("first")
+#     for f in [
+#                 "temp_phantom_info.h5",
+#                 "temp_phantom.h5",
+#                 f"doesNotExist{LOCK_EXT}"
+#             ]:
+#         if os.path.exists(f):
+#             os.remove(f)
 
 def backup_before_teardown(backup_source:str, backup_dest:str):
     make_dir(backup_dest, ensure_clean=True)
     copy_tree(backup_source, backup_dest)
+
+# Necessary, as the creation of locks is not deterministic
+def list_non_locks(dir:str)->List[str]:
+    return [f for f in os.listdir(dir) if not f.endswith(LOCK_EXT)]
+
+# Necessary, as the creation of locks is not deterministic
+def count_non_locks(dir:str)->int:
+    return len(list_non_locks(dir))
 
 
 # Bash scripts
