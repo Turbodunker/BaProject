@@ -9,6 +9,7 @@ Author(s): David Marchant
 import os
 import sys
 import threading
+import subprocess
 
 from multiprocessing import Pipe
 from random import randrange
@@ -19,7 +20,8 @@ from meow_base.core.base_handler import BaseHandler
 from meow_base.core.base_monitor import BaseMonitor
 from meow_base.core.vars import DEBUG_WARNING, DEBUG_INFO, \
     EVENT_TYPE, VALID_CHANNELS, META_FILE, DEFAULT_JOB_OUTPUT_DIR, \
-    DEFAULT_JOB_QUEUE_DIR, EVENT_PATH
+    DEFAULT_JOB_QUEUE_DIR, EVENT_PATH, JOB_TYPE_BASH, JOB_TYPE_PYTHON, \
+    JOB_TYPE_PAPERMILL
 from meow_base.functionality.validation import check_type, valid_list, \
     valid_dir_path
 from meow_base.functionality.debug import setup_debugging, print_debug
@@ -204,7 +206,10 @@ class MeowRunner:
                         if len(valid_conductors) == 1:
                             conductor = valid_conductors[0]
                             executed = True
+                            #Get job_type for translation
+                            job_type = job["job_type"]
                             self.execute_job(conductor, job_dir)
+                            self.translate_job(conductor, job_dir, job_type)
                             break
                         # If multiple handlers then randomly pick one
                         elif len(valid_conductors) > 1:
@@ -213,6 +218,7 @@ class MeowRunner:
                             ]
                             executed = True
                             self.execute_job(conductor, job_dir)
+                            self.translate_job(conductor, job_dir, job_type)
                             break
 
                 # TODO determine something more useful to do here
@@ -239,6 +245,34 @@ class MeowRunner:
             print_debug(self._print_target, self.debug_level, 
                 f"Something went wrong during handling for {event[EVENT_TYPE]}"
                 f" event '{event[EVENT_PATH]}'. {e}", DEBUG_INFO)
+
+
+    def translate_job(self, conductor:BaseConductor, job_dir:str, job_type:str)->None:
+        """Function for a given conductor to translate a given job."""
+
+        job_id = os.path.basename(job_dir)
+        if(os.path.exists(f"test_job_output/{job_id}/submit.job")):
+            os.remove(f"test_job_output/{job_id}/submit.job")
+        #Write the .job file for slurm. Should be scheduled with sbatch in the "home"-directory when mounted.
+        with open(f"test_job_output/{job_id}/submit.job", "w+") as fp:
+            fp.write("#!/bin/bash\n")
+            fp.write("#SBATCH --job-name=submit_{job_id}.job\n")
+            fp.write("#SBATCH --output=slurmA.txt\n")
+            fp.write("OPATH=test_monitor_base/output;\n")
+            fp.write("cd base\n")
+            #Maybe split this to a seperate function if it grows much more..
+            match job_type:
+                case "papermill":
+                    fp.write(f"papermill test_job_output/{job_id}/job.ipynb > $OPATH/slurmA.txt\n")
+                case "python":
+                    fp.write(f"python3 test_job_output/{job_id}/job.py > $OPATH/slurmA.txt\n")
+                case "bash":
+                    fp.write(f"exec test_job_output/{job_id}/job.sh > $OPATH/slurmA.txt\n")
+            #TODO: Make sure the job is finished before unmounting
+            # fp.write("umount -l $PWD")
+
+            # subprocess.call(["dpipe", "/usr/lib/openssh/sftp-server", "=", "ssh", "mblom@192.168.0.24", "sshfs", ":/home/mblomqvist/Documents/project/meow_base/", "/home/mblom/base", "-o", "slave"])
+            # subprocess.run(["/home/mblomqvist/Documents/project/connect.sh"])
 
     def execute_job(self, conductor:BaseConductor, job_dir:str)->None:
         """Function for a given conductor to execute a given job, without 

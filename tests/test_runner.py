@@ -13,8 +13,9 @@ from meow_base.core.base_conductor import BaseConductor
 from meow_base.core.base_handler import BaseHandler
 from meow_base.core.base_monitor import BaseMonitor
 from meow_base.conductors import LocalPythonConductor
+from meow_base.conductors import LocalBashConductor
 from meow_base.core.vars import JOB_TYPE_PAPERMILL, JOB_ERROR, \
-    META_FILE, JOB_TYPE_PYTHON, JOB_CREATE_TIME, get_result_file
+    META_FILE, JOB_TYPE_PYTHON, JOB_TYPE_BASH, JOB_CREATE_TIME, get_result_file
 from meow_base.core.runner import MeowRunner
 from meow_base.functionality.file_io import make_dir, read_file, \
     read_notebook, read_yaml, write_file, lines_to_string
@@ -25,11 +26,12 @@ from meow_base.patterns.file_event_pattern import WatchdogMonitor, \
 from meow_base.recipes.jupyter_notebook_recipe import PapermillHandler, \
     JupyterNotebookRecipe
 from meow_base.recipes.python_recipe import PythonHandler, PythonRecipe
+from meow_base.recipes.bash_recipe import BashHandler, BashRecipe
 from shared import TEST_JOB_QUEUE, TEST_JOB_OUTPUT, TEST_MONITOR_BASE, \
-    MAKER_RECIPE, APPENDING_NOTEBOOK, COMPLETE_PYTHON_SCRIPT, TEST_DIR, \
+    MAKER_RECIPE, APPENDING_NOTEBOOK, COMPLETE_PYTHON_SCRIPT, COMPLETE_BASH_SCRIPT, TEST_DIR, \
     FILTER_RECIPE, POROSITY_CHECK_NOTEBOOK, SEGMENT_FOAM_NOTEBOOK, \
     GENERATOR_NOTEBOOK, FOAM_PORE_ANALYSIS_NOTEBOOK, IDMC_UTILS_PYTHON_SCRIPT, \
-    TEST_DATA, GENERATE_PYTHON_SCRIPT, setup, teardown, backup_before_teardown
+    TEST_DATA, GENERATE_PYTHON_SCRIPT, setup, backup_before_teardown
 
 pattern_check = FileEventPattern(
     "pattern_check", 
@@ -85,6 +87,7 @@ pattern_regenerate = FileEventPattern(
         "chance_big": 0
     })
 
+
 recipe_check_key, recipe_check_req = create_python_requirements(
     modules=["numpy", "importlib", "matplotlib"])
 recipe_check = JupyterNotebookRecipe(
@@ -123,9 +126,9 @@ class MeowTests(unittest.TestCase):
         super().setUp()
         setup()
 
-    def tearDown(self)->None:
-        super().tearDown()
-        teardown()
+    # def tearDown(self)->None:
+    #     super().tearDown()
+    #     teardown()
 
     # Test MeowRunner creation
     def testMeowRunnerSetup(self)->None:
@@ -256,6 +259,98 @@ class MeowTests(unittest.TestCase):
         self.assertEqual(handler_one.job_queue_dir, overridden_queue_dir)
         self.assertEqual(conductor_one.job_queue_dir, overridden_queue_dir)
         self.assertEqual(conductor_one.job_output_dir, overridden_output_dir)
+
+    # Test single meow bash job execution
+    def testMeowRunnerBashExecution(self)->None:
+        pattern_one = FileEventPattern(
+            "pattern_one",
+            os.path.join("start", "A.txt"), "recipe_one", "infile",
+            parameters={
+                "num":10000,
+                "outfile":os.path.join("{BASE}", "output", "{FILENAME}")
+            })
+        recipe = BashRecipe(
+            "recipe_one", COMPLETE_BASH_SCRIPT)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+        recipes = {
+            recipe.name: recipe,
+        }
+
+        runner_debug_stream = io.StringIO("")
+
+        runner = MeowRunner(
+            WatchdogMonitor(
+                TEST_MONITOR_BASE,
+                patterns,
+                recipes,
+                settletime=1
+            ),
+            BashHandler(
+                job_queue_dir=TEST_JOB_QUEUE
+            ),
+            LocalBashConductor(),
+            job_queue_dir=TEST_JOB_QUEUE,
+            job_output_dir=TEST_JOB_OUTPUT,
+            print=runner_debug_stream,
+            logging=3
+        )
+
+        runner.start()
+
+        start_dir = os.path.join(TEST_MONITOR_BASE, "start")
+        make_dir(start_dir)
+        self.assertTrue(start_dir)
+        with open(os.path.join(start_dir, "A.txt"), "w") as f:
+            f.write("25000")
+
+        self.assertTrue(os.path.exists(os.path.join(start_dir, "A.txt")))
+
+        loops = 0
+        job_id = None
+        while loops < 5:
+            sleep(1)
+            runner_debug_stream.seek(0)
+            messages = runner_debug_stream.readlines()
+
+            for msg in messages:
+                self.assertNotIn("ERROR", msg)
+
+                if "INFO: Completed execution for job: '" in msg:
+                    job_id = msg.replace(
+                        "INFO: Completed execution for job: '", "")
+                    job_id = job_id[:-2]
+                    loops = 5
+            loops += 1
+
+        self.assertIsNotNone(job_id)
+        self.assertEqual(len(os.listdir(TEST_JOB_OUTPUT)), 1)
+        self.assertIn(job_id, os.listdir(TEST_JOB_OUTPUT))
+
+        runner.stop()
+
+        job_dir = os.path.join(TEST_JOB_OUTPUT, job_id)
+
+        metafile = os.path.join(job_dir, META_FILE)
+        status = read_yaml(metafile)
+
+        self.assertNotIn(JOB_ERROR, status)
+
+        self.assertTrue(os.path.exists(job_dir))
+        #Is this necessary when we are we are asserting on the output?
+        # result_path = os.path.join(job_dir, get_result_file(JOB_TYPE_BASH))
+        # self.assertTrue(os.path.exists(result_path))
+
+        # result = read_file(os.path.join(result_path))
+        # self.assertEqual(
+        #     result, "--STDOUT--\n12505000\ndone\n\n\n--STDERR--\n\n")
+
+        output_path = os.path.join(TEST_MONITOR_BASE, "output", "A.txt")
+        self.assertTrue(os.path.exists(output_path))
+        output = read_file(os.path.join(output_path))
+        self.assertEqual(output, "12505000\n")
 
     # Test single meow papermill job execution
     def testMeowRunnerPapermillExecution(self)->None:
@@ -645,7 +740,8 @@ class MeowTests(unittest.TestCase):
             final_job_id = job_ids[0]
 
         mid_job_dir = os.path.join(TEST_JOB_OUTPUT, mid_job_id)
-        self.assertEqual(len(os.listdir(mid_job_dir)), 5)
+        #Changed this from 5 to 6 because I've added the submit.job
+        self.assertEqual(len(os.listdir(mid_job_dir)), 6)
 
         mid_metafile = os.path.join(mid_job_dir, META_FILE)
         mid_status = read_yaml(mid_metafile)
@@ -664,7 +760,8 @@ class MeowTests(unittest.TestCase):
         self.assertEqual(mid_output, "7806.25")
 
         final_job_dir = os.path.join(TEST_JOB_OUTPUT, final_job_id)
-        self.assertEqual(len(os.listdir(final_job_dir)), 5)
+        #Changed this from 5 to 6 because I've added the submit.job
+        self.assertEqual(len(os.listdir(final_job_dir)), 6)
 
         final_metafile = os.path.join(final_job_dir, META_FILE)
         final_status = read_yaml(final_metafile)

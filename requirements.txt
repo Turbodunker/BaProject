@@ -3,3 +3,4 @@ papermill
 nbformat
 pyyaml
 watchdog
+vde2
