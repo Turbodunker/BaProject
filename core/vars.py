@@ -86,6 +86,7 @@ JOB_TYPE = "job_type"
 JOB_TYPE_BASH = "bash"
 JOB_TYPE_PYTHON = "python"
 JOB_TYPE_PAPERMILL = "papermill"
+JOB_TYPE_SLURM = "slurm"
 PYTHON_FUNC = "func"
 BACKUP_JOB_ERROR_FILE = "ERROR.log"
 JOB_TYPES = {
@@ -103,6 +104,11 @@ JOB_TYPES = {
         "base.sh",
         "job.sh",
         "result.sh"
+    ],
+    JOB_TYPE_SLURM: [
+        "base.slurm",
+        "job.slurm",
+        "result.slurm"
     ]
 }
 

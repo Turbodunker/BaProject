@@ -539,6 +539,24 @@ class PythonTests(unittest.TestCase):
 
     # TODO test job status funcs
 
+class SlurmTests(unittest.TestCase):
+    def setUp(self)->None:
+        super().setup()
+        setup()
+
+    # Test LocalSlrumConductor creation
+    def testLocalSlrumConductorCreation(self)->None:
+        LocalSlurmConductor()
+
+    # Test LocalBashConductor naming
+    def testLocalSlurmConductorNaming(self)->None:
+        test_name = "test_name"
+        conductor = LocalSlurmConductor(name=test_name)
+        self.assertEqual(conductor.name, test_name)
+
+        conductor = LocalSlurmConductor()
+        self.assertTrue(conductor.name.startswith("conductor_"))
+
 class BashTests(unittest.TestCase):
     def setUp(self)->None:
         super().setUp()

@@ -14,11 +14,7 @@ from meow_base.core.base_monitor import BaseMonitor
 from meow_base.conductors import LocalPythonConductor
 from meow_base.conductors import LocalBashConductor
 from meow_base.core.vars import JOB_TYPE_PAPERMILL, JOB_ERROR, \
-<<<<<<< HEAD
-    META_FILE, JOB_TYPE_PYTHON, JOB_TYPE_BASH, JOB_CREATE_TIME, get_result_file
-=======
-    META_FILE, JOB_TYPE_PYTHON, JOB_CREATE_TIME
->>>>>>> 933d568fb2c07405e1bfa285c03e0fc82410a933
+    META_FILE, JOB_TYPE_PYTHON, JOB_TYPE_BASH, JOB_CREATE_TIME
 from meow_base.core.runner import MeowRunner
 from meow_base.functionality.file_io import make_dir, read_file, \
     read_notebook, read_yaml, write_file, lines_to_string
