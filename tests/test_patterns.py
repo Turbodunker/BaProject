@@ -3,19 +3,22 @@ import io
 import os
 import unittest
 
+from datetime import datetime
 from multiprocessing import Pipe
-from time import sleep
+from time import sleep, time
 
 from meow_base.core.vars import FILE_CREATE_EVENT, EVENT_TYPE, \
-    EVENT_RULE, WATCHDOG_BASE, EVENT_TYPE_WATCHDOG, EVENT_PATH, SWEEP_START, \
+    EVENT_RULE, EVENT_PATH, SWEEP_START, \
     SWEEP_JUMP, SWEEP_STOP, DIR_EVENTS
 from meow_base.functionality.file_io import make_dir
+from meow_base.functionality.meow import create_rule
 from meow_base.patterns.file_event_pattern import FileEventPattern, \
-    WatchdogMonitor, _DEFAULT_MASK
+    WatchdogMonitor, _DEFAULT_MASK, WATCHDOG_HASH, WATCHDOG_BASE, \
+    EVENT_TYPE_WATCHDOG, WATCHDOG_EVENT_KEYS, create_watchdog_event
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 from meow_base.recipes.python_recipe import PythonRecipe
 from shared import BAREBONES_NOTEBOOK, TEST_MONITOR_BASE, \
-    COUNTING_PYTHON_SCRIPT, setup, teardown
+    COUNTING_PYTHON_SCRIPT, APPENDING_NOTEBOOK, setup, teardown
 
 
 def patterns_equal(tester, pattern_one, pattern_two):
@@ -195,6 +198,67 @@ class WatchdogMonitorTests(unittest.TestCase):
     def tearDown(self)->None:
         super().tearDown()
         teardown()
+
+    # Test creation of watchdog event dict
+    def testCreateWatchdogEvent(self)->None:
+        pattern = FileEventPattern(
+            "pattern", 
+            "file_path", 
+            "recipe_one", 
+            "infile", 
+            parameters={
+                "extra":"A line from a test Pattern",
+                "outfile":"result_path"
+            })
+        recipe = JupyterNotebookRecipe(
+            "recipe_one", APPENDING_NOTEBOOK)
+
+        rule = create_rule(pattern, recipe)
+
+        with self.assertRaises(TypeError):
+            event = create_watchdog_event("path", rule)
+
+        event = create_watchdog_event(
+            "path", rule, "base", time(), "hash")
+
+        self.assertEqual(type(event), dict)
+        self.assertEqual(len(event.keys()), len(WATCHDOG_EVENT_KEYS))
+        for key, value in WATCHDOG_EVENT_KEYS.items():
+            self.assertTrue(key in event.keys())
+            self.assertIsInstance(event[key], value)
+        self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(event[EVENT_PATH], "path")
+        self.assertEqual(event[EVENT_RULE], rule)
+        self.assertEqual(event[WATCHDOG_BASE], "base")
+        self.assertEqual(event[WATCHDOG_HASH], "hash")
+
+        event = create_watchdog_event(
+            "path2", 
+            rule, 
+            "base", 
+            time(), 
+            "hash", 
+            extras={"a":1}
+        )
+
+        self.assertEqual(type(event), dict)
+        self.assertTrue(EVENT_TYPE in event.keys())
+        self.assertTrue(EVENT_PATH in event.keys())
+        self.assertTrue(EVENT_RULE in event.keys())
+        self.assertTrue(WATCHDOG_BASE in event.keys())
+        self.assertTrue(WATCHDOG_HASH in event.keys())
+        self.assertEqual(len(event.keys()), len(WATCHDOG_EVENT_KEYS)+1)
+        for key, value in WATCHDOG_EVENT_KEYS.items():
+            self.assertTrue(key in event.keys())
+            self.assertIsInstance(event[key], value)
+        self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(event[EVENT_PATH], "path2")
+        self.assertEqual(event[EVENT_RULE], rule)
+        self.assertEqual(event["a"], 1)
+        self.assertEqual(event[WATCHDOG_BASE], "base")
+        self.assertEqual(event[WATCHDOG_HASH], "hash")
+
+    #TODO test valid watchdog event
 
     # Test WatchdogMonitor created 
     def testWatchdogMonitorMinimum(self)->None:

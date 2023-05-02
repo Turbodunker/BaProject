@@ -18,11 +18,13 @@ from meow_base.core.base_conductor import BaseConductor
 from meow_base.core.base_handler import BaseHandler
 from meow_base.core.base_monitor import BaseMonitor
 from meow_base.core.vars import DEBUG_WARNING, DEBUG_INFO, \
-    VALID_CHANNELS, META_FILE, DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR
+    VALID_CHANNELS, META_FILE, DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR, \
+    JOB_STATUS, STATUS_QUEUED
 from meow_base.functionality.validation import check_type, valid_list, \
     valid_dir_path, check_implementation
 from meow_base.functionality.debug import setup_debugging, print_debug
-from meow_base.functionality.file_io import make_dir, threadsafe_read_status
+from meow_base.functionality.file_io import make_dir, threadsafe_read_status, \
+    threadsafe_update_status
 from meow_base.functionality.process_io import wait
 
 
@@ -184,13 +186,20 @@ class MeowRunner:
 
                     message = connection.recv()
 
-                    # Recieved an event
+                    # Recieved a job
                     if isinstance(component, BaseHandler):
                         self.job_queue.append(message)
+                        threadsafe_update_status(
+                            {
+                                JOB_STATUS: STATUS_QUEUED
+                            },
+                            os.path.join(message, META_FILE)
+                        )
                         continue
-                    # Recieved a request for an event
+                    # Recieved a request for a job
                     if isinstance(component, BaseConductor):
                         valid = False
+                        print(f"Got request for job")
                         for job_dir in self.job_queue:
                             try:
                                 metafile = os.path.join(job_dir, META_FILE)

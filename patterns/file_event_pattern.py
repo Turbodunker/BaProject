@@ -20,6 +20,7 @@ from watchdog.events import PatternMatchingEventHandler
 from meow_base.core.base_recipe import BaseRecipe
 from meow_base.core.base_monitor import BaseMonitor
 from meow_base.core.base_pattern import BasePattern
+from meow_base.core.meow import EVENT_KEYS, valid_meow_dict
 from meow_base.core.rule import Rule
 from meow_base.functionality.validation import check_type, valid_string, \
     valid_dict, valid_list, valid_dir_path
@@ -30,7 +31,7 @@ from meow_base.core.vars import VALID_RECIPE_NAME_CHARS, \
     DIR_RETROACTIVE_EVENT
 from meow_base.functionality.debug import setup_debugging, print_debug
 from meow_base.functionality.hashing import get_hash
-from meow_base.functionality.meow import create_watchdog_event
+from meow_base.functionality.meow import create_event
 
 # Events that are monitored by default
 _DEFAULT_MASK = [
@@ -40,6 +41,38 @@ _DEFAULT_MASK = [
     FILE_RETROACTIVE_EVENT,
     FILE_CLOSED_EVENT
 ]
+
+# watchdog events
+EVENT_TYPE_WATCHDOG = "watchdog"
+WATCHDOG_BASE = "monitor_base"
+WATCHDOG_HASH = "file_hash"
+
+WATCHDOG_EVENT_KEYS = {
+    WATCHDOG_BASE: str,
+    WATCHDOG_HASH: str,    
+    **EVENT_KEYS
+}
+
+def create_watchdog_event(path:str, rule:Any, base:str, time:float, 
+            hash:str, extras:Dict[Any,Any]={})->Dict[Any,Any]:
+    """Function to create a MEOW event dictionary."""
+    return create_event(
+        EVENT_TYPE_WATCHDOG, 
+        path, 
+        rule,
+        time,
+        extras={
+            **extras,
+            **{
+                WATCHDOG_HASH: hash,
+                WATCHDOG_BASE: base
+            }
+        }
+    )
+
+def valid_watchdog_event(event:Dict[str,Any])->None:
+    valid_meow_dict(event, "Watchdog event", WATCHDOG_EVENT_KEYS)
+
 
 class FileEventPattern(BasePattern):
     # The path at which events will trigger this pattern
@@ -239,6 +272,7 @@ class WatchdogMonitor(BaseMonitor):
                         event.src_path,
                         rule,
                         self.base_dir,
+                        event.time_stamp,
                         get_hash(event.src_path, SHA256) 
                     )
                     print_debug(self._print_target, self.debug_level,  
@@ -300,6 +334,7 @@ class WatchdogMonitor(BaseMonitor):
                         globble,
                         rule,
                         self.base_dir,
+                        time(),
                         get_hash(globble, SHA256)
                     )
                     print_debug(self._print_target, self.debug_level,  

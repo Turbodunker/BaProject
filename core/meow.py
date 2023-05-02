@@ -12,19 +12,14 @@ from meow_base.core.rule import Rule
 from meow_base.functionality.validation import check_type
 from meow_base.core.vars import EVENT_TYPE, EVENT_PATH, \
     JOB_EVENT, JOB_TYPE, JOB_ID, JOB_PATTERN, JOB_RECIPE, JOB_RULE, \
-    JOB_STATUS, JOB_CREATE_TIME, EVENT_RULE, WATCHDOG_BASE, WATCHDOG_HASH
+    JOB_STATUS, JOB_CREATE_TIME, EVENT_RULE, EVENT_TIME
 
 # Required keys in event dict
 EVENT_KEYS = {
     EVENT_TYPE: str,
     EVENT_PATH: str,
+    EVENT_TIME: float,
     EVENT_RULE: Rule
-}
-
-WATCHDOG_EVENT_KEYS = {
-    WATCHDOG_BASE: str,
-    WATCHDOG_HASH: str,    
-    **EVENT_KEYS
 }
 
 # Required keys in job dict
@@ -59,6 +54,3 @@ def valid_event(event:Dict[str,Any])->None:
 def valid_job(job:Dict[str,Any])->None:
     """Check that a given dict expresses a meow job."""
     valid_meow_dict(job, "Job", JOB_KEYS)
-
-def valid_watchdog_event(event:Dict[str,Any])->None:
-    valid_meow_dict(event, "Watchdog event", WATCHDOG_EVENT_KEYS)

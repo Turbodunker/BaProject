@@ -11,16 +11,13 @@ from meow_base.core.meow import valid_event
 from meow_base.functionality.validation import check_type, valid_dict, \
     valid_string, valid_dir_path
 from meow_base.core.vars import DEBUG_INFO, DEFAULT_JOB_QUEUE_DIR, \
-    VALID_VARIABLE_NAME_CHARS, EVENT_PATH, EVENT_RULE, EVENT_TYPE, JOB_ID, \
-    EVENT_TYPE_WATCHDOG, JOB_TYPE_BASH, JOB_PARAMETERS, WATCHDOG_BASE, \
-    META_FILE, STATUS_QUEUED, JOB_STATUS, \
-    get_base_file, get_job_file
+    VALID_VARIABLE_NAME_CHARS, EVENT_RULE, EVENT_TYPE, \
+    JOB_TYPE_BASH
 from meow_base.functionality.debug import setup_debugging, print_debug
 from meow_base.functionality.file_io import valid_path, make_dir, write_file, \
-    lines_to_string, threadsafe_write_status
+    lines_to_string
 from meow_base.functionality.parameterisation import parameterize_bash_script
-from meow_base.functionality.meow import create_job, replace_keywords
-
+from meow_base.patterns.file_event_pattern import EVENT_TYPE_WATCHDOG
 
 class BashRecipe(BaseRecipe):
     # A path to the bash script used to create this recipe
@@ -78,32 +75,6 @@ class BashHandler(BaseHandler):
         print_debug(self._print_target, self.debug_level, 
             "Created new BashHandler instance", DEBUG_INFO)
 
-    def handle(self, event:Dict[str,Any])->None:
-        """Function called to handle a given event."""
-        print_debug(self._print_target, self.debug_level, 
-            f"Handling event {event[EVENT_PATH]}", DEBUG_INFO)
-
-        rule = event[EVENT_RULE]
-
-        # Assemble job parameters dict from pattern variables
-        yaml_dict = {}
-        for var, val in rule.pattern.parameters.items():
-            yaml_dict[var] = val
-        for var, val in rule.pattern.outputs.items():
-            yaml_dict[var] = val
-        yaml_dict[rule.pattern.triggering_file] = event[EVENT_PATH]
-
-        # If no parameter sweeps, then one job will suffice
-        if not rule.pattern.sweep:
-            self.setup_job(event, yaml_dict)
-        else:
-            # If parameter sweeps, then many jobs created
-            values_list = rule.pattern.expand_sweeps()
-            for values in values_list:
-                for value in values:
-                    yaml_dict[value[0]] = value[1]
-                self.setup_job(event, yaml_dict)
-
     def valid_handle_criteria(self, event:Dict[str,Any])->Tuple[bool,str]:
         """Function to determine given an event defintion, if this handler can 
         process it or not. This handler accepts events from watchdog with 
@@ -129,81 +100,17 @@ class BashHandler(BaseHandler):
         if not os.path.exists(job_queue_dir):
             make_dir(job_queue_dir)
 
-    def setup_job(self, event:Dict[str,Any], yaml_dict:Dict[str,Any])->None:
-        """Function to set up new job dict and send it to the runner to be 
-        executed."""
-        meow_job = create_job(
-            JOB_TYPE_BASH, 
-            event, 
-            extras={
-                JOB_PARAMETERS:yaml_dict
-            }
-        )
-        print_debug(self._print_target, self.debug_level,  
-            f"Creating job from event at {event[EVENT_PATH]} of type "
-            f"{JOB_TYPE_BASH}.", DEBUG_INFO)
-
-        # replace MEOW keyworks within variables dict
-        yaml_dict = replace_keywords(
-            meow_job[JOB_PARAMETERS],
-            meow_job[JOB_ID],
-            event[EVENT_PATH],
-            event[WATCHDOG_BASE]
-        )
-
-        # Create a base job directory
-        job_dir = os.path.join(self.job_queue_dir, meow_job[JOB_ID])
-        make_dir(job_dir)
-
-        # write a status file to the job directory
-        meta_file = os.path.join(job_dir, META_FILE)
-        threadsafe_write_status(meow_job, meta_file)
-
+    def get_created_job_type(self)->str:
+        return JOB_TYPE_BASH
+    
+    def create_job_recipe_file(self, job_dir:str, event:Dict[str,Any], 
+            params_dict:Dict[str,Any])->str:
         # parameterise recipe and write as executeable script
         base_script = parameterize_bash_script(
-            event[EVENT_RULE].recipe.recipe, yaml_dict
+            event[EVENT_RULE].recipe.recipe, params_dict
         )
-        base_file = os.path.join(job_dir, get_base_file(JOB_TYPE_BASH))
+        base_file = os.path.join(job_dir, "recipe.sh")
         write_file(lines_to_string(base_script), base_file)
-        os.chmod(base_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        os.chmod(base_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH )
 
-        # Write job script, to manage base script lifetime and execution
-
-        job_script = assemble_bash_job_script()
-        job_file = os.path.join(job_dir, get_job_file(JOB_TYPE_BASH))
-        write_file(lines_to_string(job_script), job_file)
-        os.chmod(job_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-        meow_job[JOB_STATUS] = STATUS_QUEUED
-
-        # update the status file with queued status
-        threadsafe_write_status(meow_job, meta_file)
-        
-        # Send job directory, as actual definitons will be read from within it
-        self.send_job_to_runner(job_dir)
-
-
-def assemble_bash_job_script()->List[str]:
-    return [
-        "#!/bin/bash",
-        "",
-        "# Get job params",
-        "given_hash=$(grep 'file_hash: *' $(dirname $0)/job.yml | tail -n1 | cut -c 14-)",
-        "event_path=$(grep 'event_path: *' $(dirname $0)/job.yml | tail -n1 | cut -c 15-)",
-        "",
-        "echo event_path: $event_path",
-        "echo given_hash: $given_hash",
-        "",
-        "# Check hash of input file to avoid race conditions",
-        "actual_hash=$(sha256sum $event_path | cut -c -64)",
-        "echo actual_hash: $actual_hash",
-        "if [ $given_hash != $actual_hash ]; then",
-        "   echo Job was skipped as triggering file has been modified since scheduling",
-        "   exit 134",
-        "fi",
-        "",
-        "# Call actual job script",
-        "$(dirname $0)/base.sh",
-        "",
-        "exit $?"
-    ]
+        return os.path.join("$(dirname $0)", "recipe.sh")

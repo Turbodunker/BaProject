@@ -7,20 +7,13 @@ Author(s): David Marchant
 """
 
 import os
-import shutil
-import subprocess
-import yaml
-
-from datetime import datetime
 from typing import Any, Dict, Tuple, List
 
 from meow_base.core.base_conductor import BaseConductor
 from meow_base.core.meow import valid_job
 from meow_base.core.vars import DEFAULT_JOB_QUEUE_DIR, \
-    DEFAULT_JOB_OUTPUT_DIR, JOB_TYPE, JOB_TYPE_BASH, META_FILE, JOB_STATUS, \
-    BACKUP_JOB_ERROR_FILE, STATUS_DONE, JOB_END_TIME, STATUS_FAILED, \
-    JOB_ERROR, JOB_TYPE, DEFAULT_JOB_QUEUE_DIR, STATUS_RUNNING, \
-    JOB_START_TIME, DEFAULT_JOB_OUTPUT_DIR, get_job_file
+    DEFAULT_JOB_OUTPUT_DIR, JOB_TYPE, JOB_TYPE_BASH, JOB_TYPE, \
+    DEFAULT_JOB_QUEUE_DIR, DEFAULT_JOB_OUTPUT_DIR
 from meow_base.functionality.validation import valid_dir_path
 from meow_base.functionality.file_io import make_dir, write_file, \
     threadsafe_read_status, threadsafe_update_status, lines_to_string
@@ -54,8 +47,6 @@ class LocalBashConductor(BaseConductor):
                 return True, ""
         except Exception as e:
             return False, str(e)
-
-
 
 
     def execute(self, job_dir:str)->None:
@@ -143,8 +134,6 @@ class LocalBashConductor(BaseConductor):
         shutil.move(job_dir, job_output_dir)
 
 #===========================================================================0
-
-
 
 
         #Translate to a job-script depending on metafile, parameters and target system

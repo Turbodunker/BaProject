@@ -6,16 +6,24 @@ from for all handler instances.
 Author(s): David Marchant
 """
 
+import os
+import stat
 
 from threading import Event, Thread
 from typing import Any, Tuple, Dict, Union
 from time import sleep
 
-from meow_base.core.vars import VALID_CHANNELS, \
-    VALID_HANDLER_NAME_CHARS, get_drt_imp_msg
+from meow_base.core.vars import VALID_CHANNELS, EVENT_RULE, EVENT_PATH, \
+    VALID_HANDLER_NAME_CHARS, META_FILE, JOB_ID, JOB_FILE, JOB_PARAMETERS, \
+    get_drt_imp_msg
 from meow_base.core.meow import valid_event
+from meow_base.patterns.file_event_pattern import WATCHDOG_HASH
+from meow_base.functionality.file_io import threadsafe_write_status, \
+    threadsafe_update_status, make_dir, write_file, lines_to_string
 from meow_base.functionality.validation import check_implementation, \
     valid_string, valid_natural
+from meow_base.functionality.meow import create_job_metadata_dict, \
+    replace_keywords
 from meow_base.functionality.naming import generate_handler_id
 
 class BaseHandler:
@@ -42,8 +50,9 @@ class BaseHandler:
     def __init__(self, name:str='', pause_time:int=5)->None:
         """BaseHandler Constructor. This will check that any class inheriting 
         from it implements its validation functions."""
-        check_implementation(type(self).handle, BaseHandler)
         check_implementation(type(self).valid_handle_criteria, BaseHandler)
+        check_implementation(type(self).get_created_job_type, BaseHandler)
+        check_implementation(type(self).create_job_recipe_file, BaseHandler)
         if not name:
             name = generate_handler_id()
         self._is_valid_name(name)
@@ -137,8 +146,125 @@ class BaseHandler:
         pass
 
     def handle(self, event:Dict[str,Any])->None:
-        """Function to handle a given event. Must be implemented by any child 
+        """Function to handle a given event. May be overridden by any child 
         process. Note that once any handling has occured, the 
         send_job_to_runner function should be called to inform the runner of 
         any resultant jobs."""
-        pass
+        rule = event[EVENT_RULE]
+
+        # Assemble job parameters dict from pattern variables
+        yaml_dict = {}
+        for var, val in rule.pattern.parameters.items():
+            yaml_dict[var] = val
+        for var, val in rule.pattern.outputs.items():
+            yaml_dict[var] = val
+        yaml_dict[rule.pattern.triggering_file] = event[EVENT_PATH]
+
+        # If no parameter sweeps, then one job will suffice
+        if not rule.pattern.sweep:
+            self.setup_job(event, yaml_dict)
+        else:
+            # If parameter sweeps, then many jobs created
+            values_list = rule.pattern.expand_sweeps()
+            for values in values_list:
+                for value in values:
+                    yaml_dict[value[0]] = value[1]
+                self.setup_job(event, yaml_dict)
+
+    def setup_job(self, event:Dict[str,Any], params_dict:Dict[str,Any])->None:
+        """Function to set up new job dict and send it to the runner to be 
+        executed."""
+
+        # Get base job metadata
+        meow_job = self.create_job_metadata_dict(event, params_dict)
+
+        # Get updated job parameters
+        # TODO replace this with generic implementation
+        from meow_base.patterns.file_event_pattern import WATCHDOG_BASE
+        params_dict = replace_keywords(
+            params_dict,
+            meow_job[JOB_ID],
+            event[EVENT_PATH],
+            event[WATCHDOG_BASE]
+        )
+
+        # Create a base job directory
+        job_dir = os.path.join(self.job_queue_dir, meow_job[JOB_ID])
+        make_dir(job_dir)
+
+        # Create job metadata file
+        meta_file = self.create_job_meta_file(job_dir, meow_job)
+
+        # Create job recipe file
+        recipe_command = self.create_job_recipe_file(job_dir, event, params_dict)
+
+        # Create job script file
+        script_command = self.create_job_script_file(job_dir, recipe_command)
+
+        threadsafe_update_status(
+            {
+                # TODO make me not tmp variables and update job dict validation
+                "tmp recipe command": recipe_command,
+                "tmp script command": script_command
+            }, 
+            meta_file
+        )
+
+        # Send job directory, as actual definitons will be read from within it
+        self.send_job_to_runner(job_dir)
+
+    def get_created_job_type(self)->str:
+        pass # Must implemented
+
+    def create_job_metadata_dict(self, event:Dict[str,Any], 
+            params_dict:Dict[str,Any])->Dict[str,Any]:
+        return create_job_metadata_dict(
+            self.get_created_job_type(), 
+            event, 
+            extras={
+                JOB_PARAMETERS:params_dict
+            }
+        )
+
+    def create_job_meta_file(self, job_dir:str, meow_job:Dict[str,Any]
+            )->Dict[str,Any]:
+        meta_file = os.path.join(job_dir, META_FILE)
+
+        threadsafe_write_status(meow_job, meta_file)
+
+        return meta_file
+
+    def create_job_recipe_file(self, job_dir:str, event:Dict[str,Any], params_dict:Dict[str,Any]
+            )->str:
+        pass # Must implemented
+
+    def create_job_script_file(self, job_dir:str, recipe_command:str)->str:
+        # TODO Make this more generic, so only checking hashes if that is present
+        job_script = [
+            "#!/bin/bash",
+            "",
+            "# Get job params",
+            f"given_hash=$(grep '{WATCHDOG_HASH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 14-)",
+            f"event_path=$(grep '{EVENT_PATH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 15-)",
+            "",
+            "echo event_path: $event_path",
+            "echo given_hash: $given_hash",
+            "",
+            "# Check hash of input file to avoid race conditions",
+            "actual_hash=$(sha256sum $event_path | cut -c -64)",
+            "echo actual_hash: $actual_hash",
+            "if [ $given_hash != $actual_hash ]; then",
+            "   echo Job was skipped as triggering file has been modified since scheduling",
+            "   exit 134",
+            "fi",
+            "",
+            "# Call actual job script",
+            recipe_command,
+            "",
+            "exit $?"
+        ]
+        job_file = os.path.join(job_dir, JOB_FILE)
+        write_file(lines_to_string(job_script), job_file)
+        os.chmod(job_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH )
+
+        return os.path.join(".", JOB_FILE)

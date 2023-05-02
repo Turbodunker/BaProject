@@ -8,16 +8,16 @@ from datetime import datetime
 from multiprocessing import Pipe, Queue
 from os.path import basename
 from sys import prefix, base_prefix
-from time import sleep
+from time import sleep, time
 from typing import Dict
 
+from meow_base.core.meow import EVENT_KEYS
 from meow_base.core.rule import Rule
 from meow_base.core.vars import CHAR_LOWERCASE, CHAR_UPPERCASE, \
-    SHA256, EVENT_TYPE, EVENT_PATH, EVENT_TYPE_WATCHDOG, LOCK_EXT, \
-    WATCHDOG_BASE, WATCHDOG_HASH, EVENT_RULE, JOB_PARAMETERS, \
+    SHA256, EVENT_TYPE, EVENT_PATH, LOCK_EXT, EVENT_RULE, JOB_PARAMETERS, \
     PYTHON_FUNC, JOB_ID, JOB_EVENT, JOB_ERROR, STATUS_DONE, \
     JOB_TYPE, JOB_PATTERN, JOB_RECIPE, JOB_RULE, JOB_STATUS, JOB_CREATE_TIME, \
-    JOB_REQUIREMENTS, STATUS_QUEUED, JOB_TYPE_PAPERMILL
+    JOB_REQUIREMENTS, JOB_TYPE_PAPERMILL, STATUS_CREATING
 from meow_base.functionality.debug import setup_debugging
 from meow_base.functionality.file_io import lines_to_string, make_dir, \
     read_file, read_file_lines, read_notebook, read_yaml, rmtree, write_file, \
@@ -27,8 +27,8 @@ from meow_base.functionality.hashing import get_hash
 from meow_base.functionality.meow import KEYWORD_BASE, KEYWORD_DIR, \
     KEYWORD_EXTENSION, KEYWORD_FILENAME, KEYWORD_JOB, KEYWORD_PATH, \
     KEYWORD_PREFIX, KEYWORD_REL_DIR, KEYWORD_REL_PATH, \
-    create_event, create_job, create_rule, create_rules, \
-    create_watchdog_event, replace_keywords, create_parameter_sweep
+    create_event, create_job_metadata_dict, create_rule, create_rules, \
+    replace_keywords, create_parameter_sweep
 from meow_base.functionality.naming import _generate_id
 from meow_base.functionality.parameterisation import \
     parameterize_jupyter_notebook, parameterize_python_script
@@ -36,7 +36,8 @@ from meow_base.functionality.process_io import wait
 from meow_base.functionality.requirements import REQUIREMENT_PYTHON, \
     REQ_PYTHON_ENVIRONMENT, REQ_PYTHON_MODULES, REQ_PYTHON_VERSION, \
     create_python_requirements, check_requirements
-from meow_base.patterns.file_event_pattern import FileEventPattern
+from meow_base.patterns.file_event_pattern import FileEventPattern, \
+    EVENT_TYPE_WATCHDOG, WATCHDOG_BASE, WATCHDOG_HASH
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 from shared import TEST_MONITOR_BASE, COMPLETE_NOTEBOOK, APPENDING_NOTEBOOK, \
     COMPLETE_PYTHON_SCRIPT, valid_recipe_two, valid_recipe_one, \
@@ -622,30 +623,32 @@ class MeowTests(unittest.TestCase):
 
         rule = create_rule(pattern, recipe)
 
-        event = create_event("test", "path", rule)
+        event = create_event("test", "path", rule, time())
 
         self.assertEqual(type(event), dict)
-        self.assertEqual(len(event.keys()), 3)
-        self.assertTrue(EVENT_TYPE in event.keys())
-        self.assertTrue(EVENT_PATH in event.keys())
-        self.assertTrue(EVENT_RULE in event.keys())
+        self.assertEqual(len(event.keys()), len(EVENT_KEYS))
+        for key, value in EVENT_KEYS.items():
+            self.assertTrue(key in event.keys())
+            self.assertIsInstance(event[key], value)
         self.assertEqual(event[EVENT_TYPE], "test")
         self.assertEqual(event[EVENT_PATH], "path")
         self.assertEqual(event[EVENT_RULE], rule)
 
-        event2 = create_event("test2", "path2", rule, extras={"a":1})
+        event2 = create_event(
+            "test2", "path2", rule, time(), extras={"a":1}
+        )
 
         self.assertEqual(type(event2), dict)
-        self.assertTrue(EVENT_TYPE in event2.keys())
-        self.assertTrue(EVENT_PATH in event.keys())
-        self.assertTrue(EVENT_RULE in event.keys())
-        self.assertEqual(len(event2.keys()), 4)
+        self.assertEqual(len(event.keys()), len(EVENT_KEYS))
+        for key, value in EVENT_KEYS.items():
+            self.assertTrue(key in event.keys())
+            self.assertIsInstance(event[key], value)
         self.assertEqual(event2[EVENT_TYPE], "test2")
         self.assertEqual(event2[EVENT_PATH], "path2")
         self.assertEqual(event2[EVENT_RULE], rule)
         self.assertEqual(event2["a"], 1)
 
-    # Test that create_job produces valid job dictionary
+    # Test that create_job_metadata_dict produces valid job dictionary
     def testCreateJob(self)->None:
         pattern = FileEventPattern(
             "pattern", 
@@ -665,6 +668,7 @@ class MeowTests(unittest.TestCase):
             EVENT_TYPE_WATCHDOG,
             "file_path",
             rule,
+            time(),
             extras={
                 WATCHDOG_BASE: TEST_MONITOR_BASE,
                 EVENT_RULE: rule,
@@ -672,7 +676,7 @@ class MeowTests(unittest.TestCase):
             }
         )
 
-        job_dict = create_job(
+        job_dict = create_job_metadata_dict(
             JOB_TYPE_PAPERMILL,
             event,
             extras={
@@ -699,63 +703,11 @@ class MeowTests(unittest.TestCase):
         self.assertIn(JOB_RULE, job_dict)
         self.assertEqual(job_dict[JOB_RULE], rule.name)
         self.assertIn(JOB_STATUS, job_dict)
-        self.assertEqual(job_dict[JOB_STATUS], STATUS_QUEUED)
+        self.assertEqual(job_dict[JOB_STATUS], STATUS_CREATING)
         self.assertIn(JOB_CREATE_TIME, job_dict)
         self.assertIsInstance(job_dict[JOB_CREATE_TIME], datetime)
         self.assertIn(JOB_REQUIREMENTS, job_dict)
         self.assertEqual(job_dict[JOB_REQUIREMENTS], {})
-
-    # Test creation of watchdog event dict
-    def testCreateWatchdogEvent(self)->None:
-        pattern = FileEventPattern(
-            "pattern", 
-            "file_path", 
-            "recipe_one", 
-            "infile", 
-            parameters={
-                "extra":"A line from a test Pattern",
-                "outfile":"result_path"
-            })
-        recipe = JupyterNotebookRecipe(
-            "recipe_one", APPENDING_NOTEBOOK)
-
-        rule = create_rule(pattern, recipe)
-
-        with self.assertRaises(TypeError):
-            event = create_watchdog_event("path", rule)
-
-        event = create_watchdog_event("path", rule, "base", "hash")
-
-        self.assertEqual(type(event), dict)
-        self.assertEqual(len(event.keys()), 5)
-        self.assertTrue(EVENT_TYPE in event.keys())
-        self.assertTrue(EVENT_PATH in event.keys())
-        self.assertTrue(EVENT_RULE in event.keys())
-        self.assertTrue(WATCHDOG_BASE in event.keys())
-        self.assertTrue(WATCHDOG_HASH in event.keys())
-        self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
-        self.assertEqual(event[EVENT_PATH], "path")
-        self.assertEqual(event[EVENT_RULE], rule)
-        self.assertEqual(event[WATCHDOG_BASE], "base")
-        self.assertEqual(event[WATCHDOG_HASH], "hash")
-
-        event = create_watchdog_event(
-            "path2", rule, "base", "hash", extras={"a":1}
-        )
-
-        self.assertEqual(type(event), dict)
-        self.assertTrue(EVENT_TYPE in event.keys())
-        self.assertTrue(EVENT_PATH in event.keys())
-        self.assertTrue(EVENT_RULE in event.keys())
-        self.assertTrue(WATCHDOG_BASE in event.keys())
-        self.assertTrue(WATCHDOG_HASH in event.keys())
-        self.assertEqual(len(event.keys()), 6)
-        self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
-        self.assertEqual(event[EVENT_PATH], "path2")
-        self.assertEqual(event[EVENT_RULE], rule)
-        self.assertEqual(event["a"], 1)
-        self.assertEqual(event[WATCHDOG_BASE], "base")
-        self.assertEqual(event[WATCHDOG_HASH], "hash")
 
     # Test that replace_keywords replaces MEOW keywords in a given dictionary
     def testReplaceKeywords(self)->None:

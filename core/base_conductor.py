@@ -5,15 +5,25 @@ from for all conductor instances.
 
 Author(s): David Marchant
 """
+import shutil
+import subprocess
+import os 
 
+from datetime import datetime
 from threading import Event, Thread
 from time import sleep
 from typing import Any, Tuple, Dict, Union
 
+
+from meow_base.core.meow import valid_job
 from meow_base.core.vars import VALID_CONDUCTOR_NAME_CHARS, VALID_CHANNELS, \
+    JOB_STATUS, JOB_START_TIME, META_FILE, STATUS_RUNNING, STATUS_DONE , \
+    BACKUP_JOB_ERROR_FILE, JOB_END_TIME, STATUS_FAILED, JOB_ERROR, \
     get_drt_imp_msg
+from meow_base.functionality.file_io import write_file, \
+    threadsafe_read_status, threadsafe_update_status
 from meow_base.functionality.validation import check_implementation, \
-    valid_string, valid_existing_dir_path, valid_natural
+    valid_string, valid_existing_dir_path, valid_natural, valid_dir_path
 from meow_base.functionality.naming import generate_conductor_id
 
 
@@ -40,7 +50,6 @@ class BaseConductor:
     def __init__(self, name:str="", pause_time:int=5)->None:
         """BaseConductor Constructor. This will check that any class inheriting
         from it implements its validation functions."""
-        check_implementation(type(self).execute, BaseConductor)
         check_implementation(type(self).valid_execute_criteria, BaseConductor)
         if not name:
             name = generate_conductor_id()
@@ -129,7 +138,93 @@ class BaseConductor:
         process it or not. Must be implemented by any child process."""
         pass
 
+    def run_job(self, job_dir:str)->None:
+        """Function to actually execute a job. This will read job 
+        defintions from its meta file, update the meta file and attempt to 
+        execute. Some unspecific feedback will be given on execution failure, 
+        but depending on what it is it may be up to the job itself to provide 
+        more detailed feedback. If you simply wish to alter the conditions 
+        under which the job is executed, please instead look at the execute 
+        function."""
+        valid_dir_path(job_dir, must_exist=True)
+
+        # Test our job parameters. Even if its gibberish, we still move to 
+        # output
+        abort = False
+        try:
+            meta_file = os.path.join(job_dir, META_FILE)
+            job = threadsafe_read_status(meta_file)
+            valid_job(job)
+
+            # update the status file with running status
+            threadsafe_update_status(
+                {
+                    JOB_STATUS: STATUS_RUNNING,
+                    JOB_START_TIME: datetime.now()
+                }, 
+                meta_file
+            )
+
+        except Exception as e:
+            # If something has gone wrong at this stage then its bad, so we 
+            # need to make our own error file
+            error_file = os.path.join(job_dir, BACKUP_JOB_ERROR_FILE)
+            write_file(f"Recieved incorrectly setup job.\n\n{e}", error_file)
+            abort = True
+
+        # execute the job
+        if not abort:
+            try:
+                result = subprocess.call(
+                    os.path.join(job_dir, job["tmp script command"]), 
+                    cwd="."
+                )
+
+                if result == 0:
+                    # Update the status file with the finalised status
+                    threadsafe_update_status(
+                        {
+                            JOB_STATUS: STATUS_DONE,
+                            JOB_END_TIME: datetime.now()
+                        }, 
+                        meta_file
+                    )
+
+                else:
+                    # Update the status file with the error status. Don't 
+                    # overwrite any more specific error messages already 
+                    # created
+                    threadsafe_update_status(
+                        {
+                            JOB_STATUS: STATUS_FAILED,
+                            JOB_END_TIME: datetime.now(),
+                            JOB_ERROR: "Job execution returned non-zero."
+                        },
+                        meta_file
+                    )
+
+            except Exception as e:
+                # Update the status file with the error status. Don't overwrite
+                # any more specific error messages already created
+                threadsafe_update_status(
+                    {
+                        JOB_STATUS: STATUS_FAILED,
+                        JOB_END_TIME: datetime.now(),
+                        JOB_ERROR: f"Job execution failed. {e}"
+                    },
+                    meta_file
+                )
+
+        # Move the contents of the execution directory to the final output 
+        # directory. 
+        job_output_dir = \
+            os.path.join(self.job_output_dir, os.path.basename(job_dir))
+        shutil.move(job_dir, job_output_dir)
+
     def execute(self, job_dir:str)->None:
-        """Function to execute a given job directory. Must be implemented by 
-        any child process."""
-        pass
+        """Function to run job execution. By default this will simply call the 
+        run_job function, to execute the job locally. However, this function 
+        may be overridden to execute the job in some other manner, such as on 
+        another resource. Note that the job itself should be executed using the 
+        run_job func in order to maintain expected logging etc."""
+        self.run_job(job_dir)

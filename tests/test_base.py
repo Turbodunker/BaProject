@@ -202,10 +202,13 @@ class BaseHandleTests(unittest.TestCase):
             TestHandler()
 
         class FullTestHandler(BaseHandler):
-            def handle(self, event):
-                pass
             def valid_handle_criteria(self, event:Dict[str,Any]
                     )->Tuple[bool,str]:
+                pass
+            def get_created_job_type(self)->str:
+                pass
+            def create_job_recipe_file(self, job_dir:str, event:Dict[str,Any], 
+                    params_dict:Dict[str,Any])->str:
                 pass
 
         FullTestHandler()
@@ -233,9 +236,6 @@ class BaseConductorTests(unittest.TestCase):
             TestConductor()
 
         class FullTestConductor(BaseConductor):
-            def execute(self, job_dir:str)->None:
-                pass
-
             def valid_execute_criteria(self, job:Dict[str,Any]
                     )->Tuple[bool,str]:
                 pass
