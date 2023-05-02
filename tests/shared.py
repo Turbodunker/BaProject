@@ -29,21 +29,21 @@ def setup():
     make_dir(DEFAULT_JOB_OUTPUT_DIR, ensure_clean=True)
     make_dir(DEFAULT_JOB_QUEUE_DIR, ensure_clean=True)
 
-# def teardown():
-#     rmtree(TEST_DIR)
-#     rmtree(TEST_MONITOR_BASE)
-#     rmtree(TEST_JOB_QUEUE)
-#     rmtree(TEST_JOB_OUTPUT)
-#     rmtree(DEFAULT_JOB_OUTPUT_DIR)
-#     rmtree(DEFAULT_JOB_QUEUE_DIR)
-#     rmtree("first")
-#     for f in [
-#                 "temp_phantom_info.h5",
-#                 "temp_phantom.h5",
-#                 f"doesNotExist{LOCK_EXT}"
-#             ]:
-#         if os.path.exists(f):
-#             os.remove(f)
+def teardown():
+    rmtree(TEST_DIR)
+    rmtree(TEST_MONITOR_BASE)
+    rmtree(TEST_JOB_QUEUE)
+    rmtree(TEST_JOB_OUTPUT)
+    rmtree(DEFAULT_JOB_OUTPUT_DIR)
+    rmtree(DEFAULT_JOB_QUEUE_DIR)
+    rmtree("first")
+    for f in [
+                "temp_phantom_info.h5",
+                "temp_phantom.h5",
+                f"doesNotExist{LOCK_EXT}"
+            ]:
+        if os.path.exists(f):
+            os.remove(f)
 
 def backup_before_teardown(backup_source:str, backup_dest:str):
     make_dir(backup_dest, ensure_clean=True)

@@ -7,6 +7,9 @@ Author(s): David Marchant
 """
 import os
 import shutil
+import subprocess
+import yaml
+
 
 from datetime import datetime
 from typing import Any, Tuple, Dict
@@ -50,30 +53,30 @@ class LocalPythonConductor(BaseConductor):
                 return True, ""
         except Exception as e:
             return False, str(e)
+    #Keeping as a reminder this should end up being its own function
+    # def translate_job(self, job_dir:str, job_type:str)->None:
+    #     """Function for a given conductor to translate a given job."""
 
-    def translate_job(self, job_dir:str, job_type:str)->None:
-        """Function for a given conductor to translate a given job."""
-
-        job_id = os.path.basename(job_dir)
-        if(os.path.exists(f"test_job_output/{job_id}/submit.job")):
-            os.remove(f"test_job_output/{job_id}/submit.job")
-        #Write the .job file for slurm. Should be scheduled with sbatch in the "home"-directory when mounted.
-        with open(f"test_job_output/{job_id}/submit.job", "w+") as fp:
-            fp.write("#!/bin/bash\n")
-            fp.write("#SBATCH --job-name=submit_{job_id}.job\n")
-            fp.write("#SBATCH --output=slurmA.txt\n")
-            fp.write("OPATH=test_monitor_base/output;\n")
-            fp.write("cd base\n")
-            #Maybe split this to a seperate function if it grows much more..
-            match job_type:
-                case "papermill":
-                    fp.write(f"papermill test_job_output/{job_id}/job.ipynb > $OPATH/slurmA.txt\n")
-                case "python":
-                    fp.write(f"python3 test_job_output/{job_id}/job.py > $OPATH/slurmA.txt\n")
-                case "bash":
-                    fp.write(f"exec test_job_output/{job_id}/job.sh > $OPATH/slurmA.txt\n")
-            #TODO: Make sure the job is finished before unmounting
-            fp.write("umount -l $PWD")
+    #     job_id = os.path.basename(job_dir)
+    #     if(os.path.exists(f"test_job_output/{job_id}/submit.job")):
+    #         os.remove(f"test_job_output/{job_id}/submit.job")
+    #     #Write the .job file for slurm. Should be scheduled with sbatch in the "home"-directory when mounted.
+    #     with open(f"test_job_output/{job_id}/submit.job", "w+") as fp:
+    #         fp.write("#!/bin/bash\n")
+    #         fp.write("#SBATCH --job-name=submit_{job_id}.job\n")
+    #         fp.write("#SBATCH --output=slurmA.txt\n")
+    #         fp.write("OPATH=test_monitor_base/output;\n")
+    #         fp.write("cd base\n")
+    #         #Maybe split this to a seperate function if it grows much more..
+    #         match job_type:
+    #             case "papermill":
+    #                 fp.write(f"papermill test_job_output/{job_id}/job.ipynb > $OPATH/slurmA.txt\n")
+    #             case "python":
+    #                 fp.write(f"python3 test_job_output/{job_id}/job.py > $OPATH/slurmA.txt\n")
+    #             case "bash":
+    #                 fp.write(f"exec test_job_output/{job_id}/job.sh > $OPATH/slurmA.txt\n")
+    #         #TODO: Make sure the job is finished before unmounting
+    #         fp.write("umount -l $PWD")
 
     def execute(self, job_dir:str)->None:
         """Function to actually execute a Python job. This will read job 
@@ -140,6 +143,7 @@ class LocalPythonConductor(BaseConductor):
         job_output_dir = \
             os.path.join(self.job_output_dir, os.path.basename(job_dir))
         shutil.move(job_dir, job_output_dir)
+
 
     def _is_valid_job_queue_dir(self, job_queue_dir)->None:
         """Validation check for 'job_queue_dir' variable from main 

@@ -9,9 +9,10 @@ Author(s): David Marchant
 import os
 import shutil
 import subprocess
+import yaml
 
 from datetime import datetime
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, List
 
 from meow_base.core.base_conductor import BaseConductor
 from meow_base.core.meow import valid_job
@@ -22,7 +23,7 @@ from meow_base.core.vars import DEFAULT_JOB_QUEUE_DIR, \
     JOB_START_TIME, DEFAULT_JOB_OUTPUT_DIR, get_job_file
 from meow_base.functionality.validation import valid_dir_path
 from meow_base.functionality.file_io import make_dir, write_file, \
-    threadsafe_read_status, threadsafe_update_status
+    threadsafe_read_status, threadsafe_update_status, lines_to_string
 
 
 class LocalBashConductor(BaseConductor):
@@ -53,6 +54,9 @@ class LocalBashConductor(BaseConductor):
                 return True, ""
         except Exception as e:
             return False, str(e)
+
+
+
 
     def execute(self, job_dir:str)->None:
         """Function to actually execute a Bash job. This will read job 
@@ -138,6 +142,60 @@ class LocalBashConductor(BaseConductor):
             os.path.join(self.job_output_dir, os.path.basename(job_dir))
         shutil.move(job_dir, job_output_dir)
 
+#===========================================================================0
+
+
+
+
+        #Translate to a job-script depending on metafile, parameters and target system
+        job_id = os.path.basename(job_dir)
+        job_type = ""
+        metadata = ""
+        print("jobid = ", job_id)
+        # Load the YAML file
+        # with open(meta_file, "r") as f:
+        #      data = yaml.safe_lwith open("example.yaml", "r") as stream:
+
+        # with open(f"test_job_output/{job_id}/job.yml", "r") as f:
+        with open(f"test_job_output/{job_id}/job.yml", "r") as f:
+            try:
+                #TODO:Resolve custom tag issue and use safe_load
+                metadata = yaml.load(f, Loader=yaml.Loader)
+                job_type = metadata["job_type"]
+            except yaml.YAMLError as exc:
+                print(exc)
+
+        # job_type = data["job_type"]
+        print(job_type)
+
+        if(os.path.exists(f"test_job_output/{job_id}/submit.job")):
+            os.remove(f"test_job_output/{job_id}/submit.job")
+        #Write the .job file for slurm. Should be scheduled with sbatch in the "home"-directory when mounted.
+        slurm_job_script = assemble_slurm_job_script(metadata)
+        write_file(lines_to_string(slurm_job_script), f"test_job_output/{job_id}/slurm.job")
+
+        subprocess.call("/home/mblomqvist/Documents/project/connect.sh")
+
+        # with open(f"test_job_output/{job_id}/submit.job", "w+") as fp:
+        #     fp.write("#!/bin/bash\n")
+        #     fp.write("#SBATCH --job-name=submit_{job_id}.job\n")
+        #     fp.write("#SBATCH --output=slurmA.txt\n")
+        #     fp.write("OPATH=test_monitor_base/output;\n")
+        #     fp.write("cd base\n")
+        #     # Call actual job script",
+        #     fp.write("")
+            #Maybe split this to a seperate function if it grows much more..
+            # match job_type:
+            #     case "papermill":
+            #         fp.write(f"papermill test_job_output/{job_id}/job.ipynb > $OPATH/slurmA.txt\n")
+            #     case "python":
+            #         fp.write(f"python3 test_job_output/{job_id}/job.py > $OPATH/slurmA.txt\n")
+            #     case "bash":
+            #         fp.write(f"exec test_job_output/{job_id}/job.sh > $OPATH/slurmA.txt\n")
+            #TODO: Make sure the job is finished before unmounting
+            # fp.write("umount -l $PWD")
+
+
     def _is_valid_job_queue_dir(self, job_queue_dir)->None:
         """Validation check for 'job_queue_dir' variable from main 
         constructor."""
@@ -151,3 +209,25 @@ class LocalBashConductor(BaseConductor):
         valid_dir_path(job_output_dir, must_exist=False)
         if not os.path.exists(job_output_dir):
             make_dir(job_output_dir)
+
+def assemble_slurm_job_script(params:Dict[str,Any])->List[str]:
+    job_id = params["id"]
+    job_type = params["job_type"]
+    print(job_id)
+    return [
+        "#!/bin/bash",
+        f"#SBATCH --job-name=submit_{job_id}.job",
+        "#SBATCH --output=slurm.out",
+        "#SBATCH --error=slurm.err"
+        "",
+        "# Call actual job script",
+        f"./test_job_output/{job_id}/job.sh",
+        "retval=$?",
+        "if [ $retval -eq 0 ]; then",
+        "   echo Job executed succesfully",
+        "else",
+        "   echo Failed with exitcode: $retval",
+        "fi",
+        #"umount -l base",
+        ""
+    ]

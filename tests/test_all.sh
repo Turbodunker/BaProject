@@ -28,7 +28,7 @@ do
     && [[ $entry != ./$script_name ]] \
     && [[ $entry != ./shared.py ]];
   then
-    SKIP_LONG=$skip_long_tests pytest $entry "-W ignore::DeprecationWarning"
+    SKIP_LONG=$skip_long_tests python3 "-m" pytest $entry "-W ignore::DeprecationWarning"
   fi
 done
 

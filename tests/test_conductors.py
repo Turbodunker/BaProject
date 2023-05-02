@@ -14,6 +14,7 @@ from meow_base.core.vars import JOB_TYPE_PYTHON, SHA256, \
     EVENT_TYPE_WATCHDOG, JOB_TYPE_BASH, \
     get_base_file, get_result_file, get_job_file
 from meow_base.conductors import LocalPythonConductor, LocalBashConductor
+from meow_base.conductors.local_bash_conductor import assemble_slurm_job_script
 from meow_base.functionality.file_io import read_file, read_yaml, write_file, \
     write_notebook, write_yaml, lines_to_string, make_dir
 from meow_base.functionality.hashing import get_hash
@@ -28,7 +29,7 @@ from meow_base.recipes.bash_recipe import BashRecipe, assemble_bash_job_script
 from shared import TEST_MONITOR_BASE, APPENDING_NOTEBOOK, TEST_JOB_OUTPUT, \
     TEST_JOB_QUEUE, COMPLETE_PYTHON_SCRIPT, BAREBONES_PYTHON_SCRIPT, \
     BAREBONES_NOTEBOOK, COMPLETE_BASH_SCRIPT, BAREBONES_BASH_SCRIPT, \
-    setup, teardown
+    setup
 
 def failing_func():
     raise Exception("bad function")
@@ -39,9 +40,9 @@ class PythonTests(unittest.TestCase):
         super().setUp()
         setup()
 
-    def tearDown(self)->None:
-        super().tearDown()
-        teardown()
+    # def tearDown(self)->None:
+    #     super().tearDown()
+    #     teardown()
         
     # Test LocalPythonConductor creation
     def testLocalPythonConductorCreation(self)->None:
@@ -727,9 +728,9 @@ class BashTests(unittest.TestCase):
         super().setUp()
         setup()
 
-    def tearDown(self)->None:
-        super().tearDown()
-        teardown()
+    # def tearDown(self)->None:
+    #     super().tearDown()
+    #     teardown()
         
     # Test LocalBashConductor creation
     def testLocalBashConductorCreation(self)->None:

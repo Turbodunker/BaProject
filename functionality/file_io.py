@@ -98,6 +98,7 @@ def write_yaml(source:Any, filename:str):
     with open(filename, 'w') as param_file:
         yaml.dump(source, param_file, default_flow_style=False)
 
+
 def threadsafe_read_status(filepath:str):
     lock_path = filepath + LOCK_EXT
     lock_handle = open(lock_path, 'a')

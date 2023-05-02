@@ -33,7 +33,7 @@ from shared import TEST_JOB_QUEUE, TEST_JOB_OUTPUT, TEST_MONITOR_BASE, \
     FILTER_RECIPE, POROSITY_CHECK_NOTEBOOK, SEGMENT_FOAM_NOTEBOOK, \
     GENERATOR_NOTEBOOK, FOAM_PORE_ANALYSIS_NOTEBOOK, IDMC_UTILS_PYTHON_SCRIPT, \
     TEST_DATA, GENERATE_PYTHON_SCRIPT, \
-    setup, teardown, backup_before_teardown, count_non_locks
+    setup, backup_before_teardown, count_non_locks
 
 pattern_check = FileEventPattern(
     "pattern_check", 
@@ -127,7 +127,7 @@ class MeowTests(unittest.TestCase):
     def setUp(self)->None:
         super().setUp()
         setup()
-
+    #OMMITED FOR TESTS
     # def tearDown(self)->None:
     #     super().tearDown()
     #     teardown()
@@ -399,13 +399,6 @@ class MeowTests(unittest.TestCase):
         self.assertNotIn(JOB_ERROR, status)
 
         self.assertTrue(os.path.exists(job_dir))
-        #Is this necessary when we are we are asserting on the output?
-        # result_path = os.path.join(job_dir, get_result_file(JOB_TYPE_BASH))
-        # self.assertTrue(os.path.exists(result_path))
-
-        # result = read_file(os.path.join(result_path))
-        # self.assertEqual(
-        #     result, "--STDOUT--\n12505000\ndone\n\n\n--STDERR--\n\n")
 
         output_path = os.path.join(TEST_MONITOR_BASE, "output", "A.txt")
         self.assertTrue(os.path.exists(output_path))
@@ -874,7 +867,7 @@ class MeowTests(unittest.TestCase):
             final_job_id = job_ids[0]
 
         mid_job_dir = os.path.join(TEST_JOB_OUTPUT, mid_job_id)
-        #Changed this from 5 to 6 because I've added the submit.job
+        #Changed this from 6 to 7 because I've added the submit.job
         self.assertEqual(len(os.listdir(mid_job_dir)), 6)
 
         mid_metafile = os.path.join(mid_job_dir, META_FILE)
@@ -894,7 +887,7 @@ class MeowTests(unittest.TestCase):
         self.assertEqual(mid_output, "7806.25")
 
         final_job_dir = os.path.join(TEST_JOB_OUTPUT, final_job_id)
-        #Changed this from 5 to 6 because I've added the submit.job
+        #Changed this from 6 to 7 because I've added the submit.job
         self.assertEqual(len(os.listdir(final_job_dir)), 6)
 
         final_metafile = os.path.join(final_job_dir, META_FILE)
