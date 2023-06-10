@@ -1,34 +1,9 @@
-# meow_base
-Repository for base MEOW definitions, as well as a some example implementations. 
+Bachelorsproject in integrating meow_base into slurm. This projects build on top of existing meow_base which is not my work 
+The files added are: 
+conductors/remote_slurm_conductor.py 
+remote/Dockerfile (supposed to be on remote resource) 
+remote/docker-entrypoint.sh (supposed to be on remote resource)
 
-## Core definitons
-
-The core MEOW defintions are found in **core/meow.py** These are parents classes for implementations to use, with certain attributes and functions enabling a certain amount of interchangeability within those classes.
-
-The most import definitions are the BasePattern, and BaseRecipe, which define the conditions under which processing will take place, and the actuall processing to take place.
-
-## MEOW Runner
-
-The way to run a MEOW system is to create and MeowRunner instance, found in **core/runner.py**. This will take 1 or more Monitors, 1 or more Handlers, and 1 or more Conductors. In turn, these will listen for events, respond to events, and execute any analysis identified. Examples of how this can be run can be found in **tests/testRunner.py**
-
-## Testing
-Pytest unittests are provided within the 'tests directory, as well as a script **test_all.sh** for calling all test scripts from a single command. This can be
-run as:
-
-    test_all.sh -s
-
-This will skip the more time consuming tests if you just need quick feedback. Without the -s argument then all tests will be run. Individual test scripts can be started using:
-
-    pytest test_runner.py::MeowTests -W ignore::DeprecationWarning
-
-with individual tests runnable with:
-
-    pytest test_runner.py::MeowTests::testMeowRunnerLinkedPythonExecution -W ignore::DeprecationWarning
-
-to run locally, update your '~/.bashrc' file to inclue:
-
-    # Manually added to get local testing of Python files working easier
-    export PYTHONPATH=/home/patch/Documents/Research/Python
-
-## Benchmarking 
-Benchmarks have been written for this library, but are included in the seperate https://github.com/PatchOfScotland/meow_benchmarks package
+The files modified are: 
+tests/shared.py look for list COMPLETE_PYTHON_RECIPE_REMOTE also updated paths for TEST_JOB_OUTPUT, TEST_JOB_QUEUE_DIR and TEST_MONITOR_BASE 
+tests/test_runner.py look for MeowTests::SweptPythonExecution core/base_hanlder.py uncommented the hashing-check in def create_job_script_file() and added permissions to job.sh
