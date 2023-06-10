@@ -19,7 +19,7 @@ from meow_base.core.base_handler import BaseHandler
 from meow_base.core.base_monitor import BaseMonitor
 from meow_base.core.vars import DEBUG_WARNING, DEBUG_INFO, \
     VALID_CHANNELS, META_FILE, DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR, \
-    JOB_STATUS, STATUS_QUEUED
+    JOB_STATUS, STATUS_QUEUED, DEFAULT_JOB_OUTPUT_DIR_REMOTE, DEFAULT_JOB_QUEUE_DIR_REMOTE
 from meow_base.functionality.validation import check_type, valid_list, \
     valid_dir_path, check_implementation
 from meow_base.functionality.debug import setup_debugging, print_debug

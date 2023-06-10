@@ -8,6 +8,8 @@ Author(s): David Marchant
 import shutil
 import subprocess
 import os 
+import time
+import signal
 
 from datetime import datetime
 from threading import Event, Thread
@@ -47,6 +49,8 @@ class BaseConductor:
     # A count, for how long a conductor will wait if told that there are no 
     # jobs in the runner, before polling again. Default is 5 seconds.
     pause_time: int
+    #Variable to store a bool for recived signals
+    recieved_signal: int
     def __init__(self, name:str="", pause_time:int=5)->None:
         """BaseConductor Constructor. This will check that any class inheriting
         from it implements its validation functions."""
@@ -108,7 +112,7 @@ class BaseConductor:
         the start function has been."""
         self._stop_event.set()
         self._handle_thread.join()
-        
+
     def main_loop(self, stop_event)->None:
         """Function defining an ongoing thread, as started by the start 
         function and stoped by the stop function. """
@@ -129,6 +133,7 @@ class BaseConductor:
             
             try:
                 self.execute(reply)
+
             except:
                 # TODO some error reporting here
                 pass
@@ -137,6 +142,8 @@ class BaseConductor:
         """Function to determine given an job defintion, if this conductor can 
         process it or not. Must be implemented by any child process."""
         pass
+
+
 
     def run_job(self, job_dir:str)->None:
         """Function to actually execute a job. This will read job 
@@ -148,7 +155,7 @@ class BaseConductor:
         function."""
         valid_dir_path(job_dir, must_exist=True)
 
-        # Test our job parameters. Even if its gibberish, we still move to 
+        # Test our job parameters. Even if its gibberish, we still move to
         # output
         abort = False
         try:
@@ -160,13 +167,13 @@ class BaseConductor:
             threadsafe_update_status(
                 {
                     JOB_STATUS: STATUS_RUNNING,
-                    JOB_START_TIME: datetime.now()
-                }, 
+                    JOB_START_TIME: datetime.now(),
+                },
                 meta_file
             )
 
         except Exception as e:
-            # If something has gone wrong at this stage then its bad, so we 
+            # If something has gone wrong at this stage then its bad, so we
             # need to make our own error file
             error_file = os.path.join(job_dir, BACKUP_JOB_ERROR_FILE)
             write_file(f"Recieved incorrectly setup job.\n\n{e}", error_file)
@@ -175,9 +182,10 @@ class BaseConductor:
         # execute the job
         if not abort:
             try:
+
                 result = subprocess.call(
-                    os.path.join(job_dir, job["tmp script command"]), 
-                    cwd="."
+                    os.path.join(job_dir, job["tmp script command"]),
+                    cwd=".",
                 )
 
                 if result == 0:
@@ -186,13 +194,13 @@ class BaseConductor:
                         {
                             JOB_STATUS: STATUS_DONE,
                             JOB_END_TIME: datetime.now()
-                        }, 
+                        },
                         meta_file
                     )
 
                 else:
-                    # Update the status file with the error status. Don't 
-                    # overwrite any more specific error messages already 
+                    # Update the status file with the error status. Don't
+                    # overwrite any more specific error messages already
                     # created
                     threadsafe_update_status(
                         {
@@ -214,12 +222,12 @@ class BaseConductor:
                     },
                     meta_file
                 )
-
-        # Move the contents of the execution directory to the final output 
-        # directory. 
+        # Move the contents of the execution directory to the final output
+        # directory.
         job_output_dir = \
             os.path.join(self.job_output_dir, os.path.basename(job_dir))
         shutil.move(job_dir, job_output_dir)
+        #print(job_output_dir)
 
     def execute(self, job_dir:str)->None:
         """Function to run job execution. By default this will simply call the 

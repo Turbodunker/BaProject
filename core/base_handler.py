@@ -195,7 +195,7 @@ class BaseHandler:
         # Create job metadata file
         meta_file = self.create_job_meta_file(job_dir, meow_job)
 
-        # Create job recipe file
+        # Create job recipe file.
         recipe_command = self.create_job_recipe_file(job_dir, event, params_dict)
 
         # Create job script file
@@ -214,7 +214,9 @@ class BaseHandler:
         self.send_job_to_runner(job_dir)
 
     def get_created_job_type(self)->str:
-        pass # Must implemented
+        pass
+        # metadata = threadsafe_read_status(meta_file)
+        # return metadata["job_type"]
 
     def create_job_metadata_dict(self, event:Dict[str,Any], 
             params_dict:Dict[str,Any])->Dict[str,Any]:
@@ -243,20 +245,20 @@ class BaseHandler:
         job_script = [
             "#!/bin/bash",
             "",
-            "# Get job params",
-            f"given_hash=$(grep '{WATCHDOG_HASH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 14-)",
-            f"event_path=$(grep '{EVENT_PATH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 15-)",
-            "",
-            "echo event_path: $event_path",
-            "echo given_hash: $given_hash",
-            "",
-            "# Check hash of input file to avoid race conditions",
-            "actual_hash=$(sha256sum $event_path | cut -c -64)",
-            "echo actual_hash: $actual_hash",
-            "if [ $given_hash != $actual_hash ]; then",
-            "   echo Job was skipped as triggering file has been modified since scheduling",
-            "   exit 134",
-            "fi",
+            # "# Get job params",
+            # f"given_hash=$(grep '{WATCHDOG_HASH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 14-)",
+            # f"event_path=$(grep '{EVENT_PATH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 15-)",
+            # "",
+            # "echo event_path: $event_path",
+            # "echo given_hash: $given_hash",
+            # "",
+            # "# Check hash of input file to avoid race conditions",
+            # "actual_hash=$(sha256sum $event_path | cut -c -64)",
+            # "echo actual_hash: $actual_hash",
+            # "if [ $given_hash != $actual_hash ]; then",
+            # "   echo Job was skipped as triggering file has been modified since scheduling",
+            # "   exit 134",
+            # "fi",
             "",
             "# Call actual job script",
             recipe_command,
@@ -264,7 +266,10 @@ class BaseHandler:
             "exit $?"
         ]
         job_file = os.path.join(job_dir, JOB_FILE)
+
         write_file(lines_to_string(job_script), job_file)
-        os.chmod(job_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH )
+        #os.chmod(job_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH )
+        os.chmod(job_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH | stat.S_IWOTH | stat.S_IWRITE | stat.S_IWUSR)
+
 
         return os.path.join(".", JOB_FILE)

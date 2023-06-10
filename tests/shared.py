@@ -9,17 +9,23 @@ from distutils.dir_util import copy_tree
 from typing import List
 
 from meow_base.core.vars import DEFAULT_JOB_OUTPUT_DIR, \
-    DEFAULT_JOB_QUEUE_DIR, LOCK_EXT
+    DEFAULT_JOB_QUEUE_DIR, LOCK_EXT, DEFAULT_JOB_OUTPUT_DIR_REMOTE, DEFAULT_JOB_QUEUE_DIR_REMOTE
 from meow_base.functionality.file_io import make_dir, rmtree
 from meow_base.patterns.file_event_pattern import FileEventPattern
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 
 # testing 
-TEST_DIR = "test_files"
-TEST_MONITOR_BASE = "test_monitor_base"
-TEST_JOB_QUEUE = "test_job_queue_dir"
-TEST_JOB_OUTPUT = "test_job_output"
-TEST_DATA = "test_data"
+TEST_DIR = "meow_base/test_files"
+TEST_MONITOR_BASE = "/jail/shodan/meow_base/test_monitor_base"
+TEST_JOB_QUEUE = "/jail/shodan/meow_base/test_job_queue_dir"
+TEST_JOB_OUTPUT = "/jail/shodan/meow_base/test_job_output"
+TEST_DATA = "meow_base/test_data"
+#remote directory
+TEST_DIR_REMOTE = "meow_base/test_files"
+TEST_MONITOR_BASE_REMOTE = "/jail/mblomqvist/test_monitor_base"
+TEST_JOB_QUEUE_REMOTE = "/jail/mblomqvist/test_job_queue_dir"
+TEST_JOB_OUTPUT_REMOTE = "/jail/mblomqvist/test_job_output"
+TEST_DATA_REMOTE = "meow_base/test_data"
 
 def setup():
     make_dir(TEST_DIR, ensure_clean=True)
@@ -84,6 +90,34 @@ COMPLETE_BASH_SCRIPT = [
     'echo $result',
     '',
     'mkdir -p $(dirname $outfile)',
+    '',
+    'echo $result > $outfile',
+    '',
+    'echo "done"'
+]
+
+COMPLETE_BASH_SCRIPT_REMOTE = [
+    '#!/bin/bash',
+    '',
+    'num=1000',
+    'infile="test_monitor_base/start/A.txt"',
+    'outfile="test_monitor_base/output/A.txt"',
+    '',
+    'echo "starting"',
+    '',
+    'read var < $infile',
+    'for (( i=0; i<$num; i++ ))',
+    'do',
+    '    var=$((var+i))',
+    'done',
+    '',
+    'div_by=4',
+    'echo $var',
+    'result=$((var/div_by))',
+    '',
+    'echo $result',
+    '',
+    'mkdir -p meow_base/test_monitor_base/output',
     '',
     'echo $result > $outfile',
     '',
@@ -1266,6 +1300,27 @@ COMPLETE_PYTHON_SCRIPT = [
     "    file.write(str(result))",
     "",
     "print('done')"
+]
+COMPLETE_PYTHON_SCRIPT_REMOTE = [
+    "import os",
+    "import time",
+    # "time.sleep(1)",
+    "infile = 'somehere"+ os.path.sep +"particular'",
+    "outfile = 'nowhere"+ os.path.sep +"particular'",
+    "result = ''",
+    "with open(infile, 'r') as file:",
+    "   while True:",
+    "       s = str(file.read(104857600))",
+    "       if not s:",
+    "           break",
+    "result = 'A'",
+    # "",
+    "os.makedirs(os.path.dirname(outfile), exist_ok=True)",
+    # "",
+    "with open(outfile, 'w') as file:",
+    "    file.write(str(result))",
+    # ""
+    # "print('done')"
 ]
 IDMC_UTILS_PYTHON_SCRIPT = [
     "import matplotlib.pyplot as plt",

@@ -251,15 +251,15 @@ def valid_path(variable:str, allow_base:bool=False, extension:str="",
     """Check that a given string expresses a valid path."""
     valid_string(variable, VALID_PATH_CHARS, min_length=min_length, hint=hint)
     
-    # Check we aren't given a root path
-    if not allow_base and variable.startswith(sep):
-        if hint:
-            msg = f"Cannot accept path '{variable}' in '{hint}'. Must be " \
-                  "relative."
-        else:
-            msg = f"Cannot accept path '{variable}'. Must be relative."
-        raise ValueError(msg)
-    
+    # # Check we aren't given a root path
+    # if not allow_base and variable.startswith(sep):
+    #     if hint:
+    #         msg = f"Cannot accept path '{variable}' in '{hint}'. Must be " \
+    #               "relative."
+    #     else:
+    #         msg = f"Cannot accept path '{variable}'. Must be relative."
+    #     raise ValueError(msg)
+
     # Check path contains a valid extension
     if extension and not variable.endswith(extension):
         if hint:

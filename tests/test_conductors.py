@@ -14,8 +14,8 @@ from meow_base.core.vars import JOB_TYPE_PYTHON, SHA256, \
     JOB_PATTERN, STATUS_DONE, JOB_TYPE_PAPERMILL, JOB_RECIPE, JOB_RULE, \
     JOB_CREATE_TIME, JOB_REQUIREMENTS, EVENT_PATH, EVENT_RULE, EVENT_TYPE, \
     JOB_TYPE_BASH, JOB_FILE
-from meow_base.conductors import LocalPythonConductor, LocalBashConductor
-from meow_base.conductors.local_bash_conductor import assemble_slurm_job_script
+from meow_base.conductors import LocalPythonConductor, LocalBashConductor, LocalSlurmConductor
+from meow_base.conductors.local_slurm_conductor import assemble_slurm_job_script
 from meow_base.functionality.file_io import read_file, read_yaml, write_file, \
     write_yaml, lines_to_string, make_dir, threadsafe_read_status
 from meow_base.functionality.hashing import get_hash
@@ -541,11 +541,11 @@ class PythonTests(unittest.TestCase):
 
 class SlurmTests(unittest.TestCase):
     def setUp(self)->None:
-        super().setup()
+        super().setUp()
         setup()
 
     # Test LocalSlrumConductor creation
-    def testLocalSlrumConductorCreation(self)->None:
+    def testLocalSlurmConductorCreation(self)->None:
         LocalSlurmConductor()
 
     # Test LocalBashConductor naming
@@ -556,6 +556,102 @@ class SlurmTests(unittest.TestCase):
 
         conductor = LocalSlurmConductor()
         self.assertTrue(conductor.name.startswith("conductor_"))
+
+    # Test LocalSlurmConductor executes valid python jobs
+    def testLocalSlurmConductorValidSlurmJob(self)->None:
+        from_handler_to_runner_reader, from_handler_to_runner_writer = Pipe()
+        bh = BashHandler(job_queue_dir=TEST_JOB_QUEUE)
+        bh.to_runner_job = from_handler_to_runner_writer
+
+        conductor_to_test_conductor, conductor_to_test_test = Pipe(duplex=True)
+        lpc = LocalSlurmConductor(
+            job_queue_dir=TEST_JOB_QUEUE,
+            job_output_dir=TEST_JOB_OUTPUT
+        )
+        lpc.to_runner_job = conductor_to_test_conductor
+
+        file_path = os.path.join(TEST_MONITOR_BASE, "test")
+        result_path = os.path.join(TEST_MONITOR_BASE, "output")
+
+        with open(file_path, "w") as f:
+            f.write("150")
+
+        file_hash = get_hash(file_path, SHA256)
+
+        pattern = FileEventPattern(
+            "pattern",
+            file_path,
+            "recipe_one",
+            "infile",
+            parameters={
+                "num":450,
+                "outfile":result_path
+            })
+        recipe = BashRecipe(
+            "recipe_one", COMPLETE_BASH_SCRIPT)
+
+        rule = create_rule(pattern, recipe)
+
+        params_dict = {
+            "num":450,
+            "infile":file_path,
+            "outfile":result_path
+        }
+
+        event = create_watchdog_event(
+            file_path,
+            rule,
+            TEST_MONITOR_BASE,
+            time(),
+            file_hash
+        )
+
+        bh.setup_job(event, params_dict)
+
+        lpc.start()
+
+        # Get valid job
+        if from_handler_to_runner_reader.poll(3):
+            job_queue_dir = from_handler_to_runner_reader.recv()
+
+        # Send it to conductor
+        if conductor_to_test_test.poll(3):
+            _ = conductor_to_test_test.recv()
+            conductor_to_test_test.send(job_queue_dir)
+
+        # Wait for job to complete
+        if conductor_to_test_test.poll(3):
+            _ = conductor_to_test_test.recv()
+            conductor_to_test_test.send(1)
+
+        job_output_dir = job_queue_dir.replace(TEST_JOB_QUEUE, TEST_JOB_OUTPUT)
+
+        self.assertFalse(os.path.exists(job_queue_dir))
+        self.assertTrue(os.path.exists(job_output_dir))
+
+        meta_path = os.path.join(job_output_dir, META_FILE)
+        self.assertTrue(os.path.exists(meta_path))
+        status = read_yaml(meta_path)
+        self.assertIsInstance(status, Dict)
+        self.assertIn(JOB_STATUS, status)
+
+        self.assertEqual(status[JOB_STATUS], STATUS_DONE)
+        self.assertNotIn(JOB_ERROR, status)
+
+        self.assertEqual(count_non_locks(job_output_dir), 3)
+        for f in [META_FILE, JOB_FILE]:
+            self.assertTrue(os.path.exists(os.path.join(job_output_dir, f)))
+        job = threadsafe_read_status(os.path.join(job_output_dir, META_FILE))
+        self.assertTrue(os.path.exists(os.path.join(job_output_dir, job["tmp script command"])))
+
+        self.assertTrue(os.path.exists(
+            os.path.join(job_output_dir, )))
+        self.assertTrue(os.path.exists(
+            os.path.join(job_output_dir, JOB_FILE)))
+
+        self.assertTrue(os.path.exists(result_path))
+        result = read_file(result_path)
+        self.assertEqual(result, "25293\n")
 
 class BashTests(unittest.TestCase):
     def setUp(self)->None:

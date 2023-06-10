@@ -77,8 +77,11 @@ DIR_EVENTS = [
 ]
 
 # runner defaults
-DEFAULT_JOB_QUEUE_DIR = "job_queue"
-DEFAULT_JOB_OUTPUT_DIR = "job_output"
+DEFAULT_JOB_QUEUE_DIR = "meow_base/job_queue"
+DEFAULT_JOB_OUTPUT_DIR = "meow_base/job_output"
+# runner defaults remote TODO: Rethink design or allow for uer defined base directory
+DEFAULT_JOB_QUEUE_DIR_REMOTE = "meow_base/job_queue"
+DEFAULT_JOB_OUTPUT_DIR_REMOTE = "meow_base/job_output"
 
 # meow jobs
 JOB_FILE = "job.sh"
