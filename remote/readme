@@ -1,0 +1,3 @@
+sshd_config should be places in /etc/ssh/
+oci.conf and slurm.conf should be places in /usr/local/etc/.
+
