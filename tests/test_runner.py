@@ -1453,7 +1453,8 @@ class MeowTests(unittest.TestCase):
         #If srun all arguments should be on second line.
         #If sbatch write each argument as a new entry.
         slurmArgs = [
-            "scrun"
+            "srun"
+            # "sbcast /tmp/cluster/startcontainer.sh /tmp/cluster/startcontainer.sh"
             # "#SBATCH --cpus-per-task=2",
             # "#SBATCH --job-name=myjob"
             # "--comment=thisisanargument"
@@ -1535,12 +1536,12 @@ class MeowTests(unittest.TestCase):
 
         self.assertIsNotNone(job_ids)
         self.assertEqual(len(job_ids), numberofjobs)
-        self.assertEqual(len(os.listdir(TEST_JOB_OUTPUT)), numberofjobs)
+        self.assertEqual(len(os.listdir(TEST_JOB_QUEUE)), numberofjobs)
 
         for job_id in job_ids:
-            self.assertIn(job_id, os.listdir(TEST_JOB_OUTPUT))
+            self.assertIn(job_id, os.listdir(TEST_JOB_QUEUE))
 
-            job_dir = os.path.join(TEST_JOB_OUTPUT, job_id)
+            job_dir = os.path.join(TEST_JOB_QUEUE, job_id)
 
             metafile = os.path.join(job_dir, META_FILE)
             status = read_yaml(metafile)

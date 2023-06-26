@@ -224,9 +224,9 @@ class BaseConductor:
                 )
         # Move the contents of the execution directory to the final output
         # directory.
-        job_output_dir = \
-            os.path.join(self.job_output_dir, os.path.basename(job_dir))
-        shutil.move(job_dir, job_output_dir)
+        # job_output_dir = \
+        #     os.path.join(self.job_output_dir, os.path.basename(job_dir))
+        # shutil.move(job_dir, job_output_dir)
         #print(job_output_dir)
 
     def execute(self, job_dir:str)->None:

@@ -118,31 +118,31 @@ def assemble_startcontainer_script(job_id:str, job_dir:str, slurmArgs:List[str]=
     base = []
     execmethod = ""
     if slurmArgs is None:
-        execmethod = f"docker run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        execmethod = f"podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
         base = [ execmethod ]
     #srun case
     elif slurmArgs[0] == "srun":
         if len(slurmArgs) == 1:
-            execmethod = f"srun docker run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+            execmethod = f"srun podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
         elif len(slurmArgs) == 2:
-            execmethod = f"srun {slurmArgs[1]} docker run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+            execmethod = f"srun {slurmArgs[1]} podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
         else:
             print("srun arguments should be written as one line as the second entry in slurmArgs!")
             os.exit()
         base = [ execmethod ]
     #sbatch case
     elif slurmArgs[0] == "sbatch":
-        execmethod = f"docker run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        execmethod = f"podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
         base = [
             f"{arg}\n" for arg in slurmArgs[1:]
             ]
         base = base + [ execmethod ]
     #scrun case
     elif slurmArgs[0] == "scrun":
-        execmethod = f"docker run $DOCKER_SECURITY --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        execmethod = f"podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
         base = [ execmethod ]
     else:
-        execmethod = f"docker run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        execmethod = f"podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
         base = [ execmethod ]
 
     #Could make this an argument aswell with some restrictions
@@ -160,11 +160,11 @@ def assemble_conn_script(job_dir:str, job_output_dir:str, slurmArgs:List[str]=No
     #     send = f"scp -i ~/.ssh/slurm.key {job_dir}/startcontainer.sh shodan@192.168.0.24:~/cluster"
     execmethod = ""
     if slurmArgs is None:
-        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd cluster && bash -s' < {job_dir}/startcontainer.sh"
+        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd /tmp/cluster && bash -s' < {job_dir}/startcontainer.sh"
     elif slurmArgs[0] == "sbatch":
-        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd cluster && sbatch' < {job_dir}/startcontainer.sh"
+        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd /tmp/cluster && sbatch' < {job_dir}/startcontainer.sh"
     else:
-        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd cluster && bash -s' < {job_dir}/startcontainer.sh"
+        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd /tmp/cluster && bash -s' < {job_dir}/startcontainer.sh"
     #Could make this an argument aswell with some restrictions
     shell = ["#!/bin/bash"]
     base = [
@@ -189,20 +189,21 @@ def assemble_conn_script(job_dir:str, job_output_dir:str, slurmArgs:List[str]=No
         # f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'srun ~/cluster/startcontainer.sh'",
         # f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'sbatch --wrap=~/cluster/startcontainer.sh'",
         # "echo starting monitor",
-        f"target={job_dir}/done",
-        "timeout=0",
-        "if [ ! -e $target ]; then",
-        "\twhile [ $timeout -ne 30000 ]; do",
-        f"\t\ttarget={job_dir}/done",
-        "\t\t((timeout=timeout+1))",
-        "\t\tsleep 0.1",
-        "\t\techo waiting",
-        "\t\tif [ -e $target ]; then",
-        "\t\t\techo done file found after: $timeout",
-        "\t\t\texit 0",
-        "\t\tfi",
-        "\tdone",
-        "fi"
+
+        # f"target={job_dir}/done",
+        # "timeout=0",
+        # "if [ ! -e $target ]; then",
+        # "\twhile [ $timeout -ne 30000 ]; do",
+        # f"\t\ttarget={job_dir}/done",
+        # "\t\t((timeout=timeout+1))",
+        # "\t\tsleep 0.1",
+        # "\t\techo waiting",
+        # "\t\tif [ -e $target ]; then",
+        # "\t\t\techo done file found after: $timeout",
+        # "\t\t\texit 0",
+        # "\t\tfi",
+        # "\tdone",
+        # "fi"
 
     ]
     return shell + base
@@ -213,7 +214,7 @@ def assemble_srun_job_script(params:Dict[str,Any], slurmargs:List[str])->List[st
     shell = ["#!/bin/bash"]
     base = [
         "# Start the container",
-        f"srun docker run -t -v $(pwd):/meow_base slurm-cluster",
+        f"srun podman run -t -v $(pwd):/meow_base slurm-cluster",
         "retval=$?",
         "if [ $retval -eq 0 ]; then",
         "   echo Job executed succesfully",
@@ -234,7 +235,7 @@ def assemble_sbatch_job_script(params:Dict[str,Any], slurmargs:List[str])->List[
         "#SBATCH --error=slurm.err"
         "",
         "# Start the container",
-        f"docker run -t -d -v $(pwd):/meow_base slurm-cluster",
+        f"podman run -t -d -v $(pwd):/meow_base slurm-cluster",
         "retval=$?",
         "if [ $retval -eq 0 ]; then",
         "   echo Job executed succesfully",
