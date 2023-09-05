@@ -15,17 +15,11 @@ from meow_base.patterns.file_event_pattern import FileEventPattern
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 
 # testing 
-TEST_DIR = "meow_base/test_files"
+TEST_DIR = "/jail/shodan/meow_base/test_files"
 TEST_MONITOR_BASE = "/jail/shodan/meow_base/test_monitor_base"
 TEST_JOB_QUEUE = "/jail/shodan/meow_base/test_job_queue_dir"
 TEST_JOB_OUTPUT = "/jail/shodan/meow_base/test_job_output"
-TEST_DATA = "meow_base/test_data"
-#remote directory
-TEST_DIR_REMOTE = "meow_base/test_files"
-TEST_MONITOR_BASE_REMOTE = "/jail/mblomqvist/test_monitor_base"
-TEST_JOB_QUEUE_REMOTE = "/jail/mblomqvist/test_job_queue_dir"
-TEST_JOB_OUTPUT_REMOTE = "/jail/mblomqvist/test_job_output"
-TEST_DATA_REMOTE = "meow_base/test_data"
+TEST_DATA = "/jail/shodan/meow_base/test_data"
 
 def setup():
     make_dir(TEST_DIR, ensure_clean=True)
@@ -1434,7 +1428,7 @@ IDMC_UTILS_PYTHON_SCRIPT = [
 GENERATE_PYTHON_SCRIPT = [
     "import numpy as np",
     "import random",
-    "import foam_ct_phantom.foam_ct_phantom as foam_ct_phantom",
+    "import foam_ct_phantom as foam_ct_phantom",
     "",
     "def generate_foam(nspheres_per_unit, vx, vy, vz, res):",
     "    def maxsize_func(x, y, z):",

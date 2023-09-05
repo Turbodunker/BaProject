@@ -27,9 +27,9 @@ from meow_base.functionality.file_io import make_dir, write_file, \
 
 
 class RemoteSlurmConductor(BaseConductor):
-    def __init__(self, slurmArgs:List[str]=None, job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR,
+    def __init__(self, job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR,
             job_output_dir:str=DEFAULT_JOB_OUTPUT_DIR, name:str="", 
-                 pause_time:int=5)->None:
+                 pause_time:int=5, slurmArgs:List[str]=None )->None:
         """RemoteSlurmConductor Constructor. This should be used to create and transmit
         Slurm jobs, and will then pass any internal job runner files to the
         output directory. Note that if this handler is given to a MeowRunner

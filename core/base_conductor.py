@@ -10,20 +10,24 @@ import subprocess
 import os 
 import time
 import signal
+import stat
+import glob
 
 from datetime import datetime
 from threading import Event, Thread
 from time import sleep
-from typing import Any, Tuple, Dict, Union
+from typing import Any, Tuple, Dict, Union, List
 
 
 from meow_base.core.meow import valid_job
 from meow_base.core.vars import VALID_CONDUCTOR_NAME_CHARS, VALID_CHANNELS, \
     JOB_STATUS, JOB_START_TIME, META_FILE, STATUS_RUNNING, STATUS_DONE , \
     BACKUP_JOB_ERROR_FILE, JOB_END_TIME, STATUS_FAILED, JOB_ERROR, \
-    get_drt_imp_msg
+    get_drt_imp_msg, DEFAULT_JOB_QUEUE_DIR, DEFAULT_JOB_OUTPUT_DIR, JOB_TYPE, \
+    JOB_TYPE_BASH, JOB_TYPE_PYTHON, JOB_TYPE_PAPERMILL, PYTHON_FUNC
 from meow_base.functionality.file_io import write_file, \
-    threadsafe_read_status, threadsafe_update_status
+    threadsafe_read_status, threadsafe_update_status, make_dir, \
+    threadsafe_update_status, lines_to_string, read_yaml
 from meow_base.functionality.validation import check_implementation, \
     valid_string, valid_existing_dir_path, valid_natural, valid_dir_path
 from meow_base.functionality.naming import generate_conductor_id
@@ -51,7 +55,13 @@ class BaseConductor:
     pause_time: int
     #Variable to store a bool for recived signals
     recieved_signal: int
-    def __init__(self, name:str="", pause_time:int=5)->None:
+    #Varible to decide of processing should be done remotely
+    remote: bool
+    #Variable to contain arguments to slurm
+    slurmArgs: List[str]
+
+    def __init__(self, name:str="", pause_time:int=5, remote:bool=False, slurmArgs:List[str]=None,
+                 job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR, job_output_dir:str=DEFAULT_JOB_OUTPUT_DIR)->None:
         """BaseConductor Constructor. This will check that any class inheriting
         from it implements its validation functions."""
         check_implementation(type(self).valid_execute_criteria, BaseConductor)
@@ -61,6 +71,10 @@ class BaseConductor:
         self.name = name    
         self._is_valid_pause_time(pause_time)
         self.pause_time = pause_time
+        self.remote = remote
+        self.slurmArgs = slurmArgs
+        self.job_queue_dir = job_queue_dir
+        self.job_output_dir = job_output_dir
 
     def __new__(cls, *args, **kwargs):
         """A check that this base class is not instantiated itself, only 
@@ -182,7 +196,6 @@ class BaseConductor:
         # execute the job
         if not abort:
             try:
-
                 result = subprocess.call(
                     os.path.join(job_dir, job["tmp script command"]),
                     cwd=".",
@@ -222,12 +235,11 @@ class BaseConductor:
                     },
                     meta_file
                 )
-        # Move the contents of the execution directory to the final output
-        # directory.
+        # Move the contents of the execution directory to the final output directory.
         # job_output_dir = \
         #     os.path.join(self.job_output_dir, os.path.basename(job_dir))
         # shutil.move(job_dir, job_output_dir)
-        #print(job_output_dir)
+        # print(job_output_dir)
 
     def execute(self, job_dir:str)->None:
         """Function to run job execution. By default this will simply call the 
@@ -235,4 +247,135 @@ class BaseConductor:
         may be overridden to execute the job in some other manner, such as on 
         another resource. Note that the job itself should be executed using the 
         run_job func in order to maintain expected logging etc."""
-        self.run_job(job_dir)
+
+        if self.remote == True:
+            valid_dir_path(job_dir, must_exist=True)
+
+            try:
+                meta_file = os.path.join(job_dir, META_FILE)
+                job = threadsafe_read_status(meta_file)
+                job_id = job["id"]
+
+                # set the correct command for remote
+                threadsafe_update_status(
+                    {
+
+                        "tmp script command": "connect.sh",
+                    },
+                    meta_file
+                )
+
+            except Exception as e:
+                # If something has gone wrong at this stage then its bad, so we
+                # need to make our own error file
+                error_file = os.path.join(job_dir, BACKUP_JOB_ERROR_FILE)
+                write_file(f"Recieved incorrectly setup job.\n\n{e}", error_file)
+                abort = True
+
+            # Create startcontainer script with job id environment variable
+            start_script = assemble_startcontainer_script(job_id, job_dir, self.slurmArgs)
+            path_to_start = os.path.join(job_dir, "startcontainer.sh")
+            write_file(lines_to_string(start_script), path_to_start)
+            os.chmod(path_to_start, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH | stat.S_IWOTH | stat.S_IWRITE | stat.S_IWUSR)
+            # os.chmod(path_to_start, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+
+
+            # Create connect.sh
+            conn_script = assemble_conn_script(job_dir, self.job_output_dir, self.slurmArgs)
+            path_to_conn = os.path.join(job_dir, "connect.sh")
+
+            write_file(lines_to_string(conn_script), path_to_conn)
+            os.chmod(path_to_conn, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            self.run_job(job_dir)
+        else:
+            self.run_job(job_dir)
+
+def assemble_startcontainer_script(job_id:str, job_dir:str, slurmArgs:List[str]=None)->List[str]:
+    base = []
+    execmethod = ""
+    if slurmArgs is None:
+        execmethod = f"podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        base = [ execmethod ]
+    #srun case
+    elif slurmArgs[0] == "srun":
+        if len(slurmArgs) == 1:
+            execmethod = f"srun podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        elif len(slurmArgs) == 2:
+            execmethod = f"srun {slurmArgs[1]} podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        else:
+            print("srun arguments should be written as one line as the second entry in slurmArgs!")
+            os.exit()
+        base = [ execmethod ]
+    #sbatch case
+    elif slurmArgs[0] == "sbatch":
+        execmethod = f"podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        base = [
+            f"{arg}\n" for arg in slurmArgs[1:]
+            ]
+        base = base + [ execmethod ]
+    else:
+        execmethod = f"podman run --cap-add SYS_ADMIN --device /dev/fuse -e ID={job_id} slurm-cluster"
+        base = [ execmethod ]
+
+    #Could make this an argument aswell with some restrictions
+    shell = ["#!/bin/env bash"] + base
+    # base = [
+    #     execmethod
+    #     #"shred -u $0"
+    # ]
+    return shell
+
+def assemble_conn_script(job_dir:str, job_output_dir:str, slurmArgs:List[str]=None)->List[str]:
+
+    # send = ""
+    # if slurmArgs != None:
+    #     send = f"scp -i ~/.ssh/slurm.key {job_dir}/startcontainer.sh shodan@192.168.0.24:~/cluster"
+    execmethod = ""
+    if slurmArgs is None:
+        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd /tmp/cluster && bash -s' < {job_dir}/startcontainer.sh"
+    elif slurmArgs[0] == "sbatch":
+        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd /tmp/cluster && sbatch' < {job_dir}/startcontainer.sh"
+    else:
+        execmethod = f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'cd /tmp/cluster && bash -s' < {job_dir}/startcontainer.sh"
+    #Could make this an argument aswell with some restrictions
+    shell = ["#!/bin/bash"]
+    base = [
+        # f"scp -i ~/.ssh/slurm.key {job_dir}/startcontainer.sh shodan@192.168.0.24:~/cluster",
+        "timeout=0",
+        execmethod,
+        "res=$?",
+        "if [ $res -ne 0 ]; then",
+        "\twhile [ $timeout -ne 30 ]; do",
+        "\t\techo in while loop",
+        "\t\t((timeout=timeout+1))",
+        "\t\tsleep 1",
+        f"\t\t"+execmethod,
+        "\t\tres=$?",
+        "\t\tif [ $res -eq 0 ]; then",
+        "\t\t\techo success reconnect",
+        "\t\t\tbreak",
+        "\t\tfi",
+        "\tdone",
+        "fi",
+
+        # f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'srun ~/cluster/startcontainer.sh'",
+        # f"ssh -i ~/.ssh/slurm.key shodan@192.168.0.24 'sbatch --wrap=~/cluster/startcontainer.sh'",
+        # "echo starting monitor",
+
+        # f"target={job_dir}/done",
+        # "timeout=0",
+        # "if [ ! -e $target ]; then",
+        # "\twhile [ $timeout -ne 30000 ]; do",
+        # f"\t\ttarget={job_dir}/done",
+        # "\t\t((timeout=timeout+1))",
+        # "\t\tsleep 0.1",
+        # "\t\techo waiting",
+        # "\t\tif [ -e $target ]; then",
+        # "\t\t\techo done file found after: $timeout",
+        # "\t\t\texit 0",
+        # "\t\tfi",
+        # "\tdone",
+        # "fi"
+
+    ]
+    return shell + base

@@ -11,6 +11,7 @@ from random import shuffle
 from shutil import copy
 from warnings import warn
 
+
 from meow_base.core.base_conductor import BaseConductor
 from meow_base.core.base_handler import BaseHandler
 from meow_base.core.base_monitor import BaseMonitor
@@ -35,8 +36,7 @@ from shared import TEST_JOB_QUEUE, TEST_JOB_OUTPUT, TEST_MONITOR_BASE, \
     MAKER_RECIPE, APPENDING_NOTEBOOK, COMPLETE_PYTHON_SCRIPT, COMPLETE_BASH_SCRIPT, TEST_DIR, \
     FILTER_RECIPE, POROSITY_CHECK_NOTEBOOK, SEGMENT_FOAM_NOTEBOOK, \
     GENERATOR_NOTEBOOK, FOAM_PORE_ANALYSIS_NOTEBOOK, IDMC_UTILS_PYTHON_SCRIPT, \
-    TEST_DATA, GENERATE_PYTHON_SCRIPT, TEST_DIR_REMOTE, \
-    TEST_JOB_QUEUE_REMOTE, TEST_JOB_OUTPUT_REMOTE, TEST_MONITOR_BASE_REMOTE, \
+    TEST_DATA, GENERATE_PYTHON_SCRIPT, \
     backup_before_teardown, count_non_locks, COMPLETE_BASH_SCRIPT_REMOTE, COMPLETE_PYTHON_SCRIPT_REMOTE
 
 pattern_check = FileEventPattern(
@@ -1441,14 +1441,14 @@ class MeowTests(unittest.TestCase):
             os.path.join("start", "A.txt"), 
             "recipe_one", 
             "infile",
-            sweep=create_parameter_sweep("num", 1000, 1100, 200),
+            sweep=create_parameter_sweep("num", 1000, 1800, 200),
             parameters={
                 "outfile":os.path.join("{BASE}", "output", "{FILENAME}")
             })
         recipe = PythonRecipe(
             "recipe_one", COMPLETE_PYTHON_SCRIPT_REMOTE
         )
-        numberofjobs = 1
+        numberofjobs = 5
         #SBATCH arguments to slurmconductor. First argument determines the method
         #If srun all arguments should be on second line.
         #If sbatch write each argument as a new entry.
@@ -1477,7 +1477,7 @@ class MeowTests(unittest.TestCase):
             PythonHandler(
                 job_queue_dir=TEST_JOB_QUEUE
             ),
-            RemoteSlurmConductor(slurmArgs, pause_time=2),
+            LocalPythonConductor(pause_time=2, remote=True, slurmArgs=slurmArgs),
             # LocalPythonConductor(pause_time=2),
             job_queue_dir=TEST_JOB_QUEUE,
             job_output_dir=TEST_JOB_OUTPUT
@@ -1941,6 +1941,8 @@ class MeowTests(unittest.TestCase):
             'recipe_generator': recipe_generator
         }
 
+        slurmArgs = ["sbatch"]
+
         runner = MeowRunner(
             WatchdogMonitor(
                 TEST_MONITOR_BASE,
@@ -1951,7 +1953,7 @@ class MeowTests(unittest.TestCase):
             PapermillHandler(
                 job_queue_dir=TEST_JOB_QUEUE
             ),
-            LocalPythonConductor(pause_time=2),
+            LocalPythonConductor(pause_time=2, remote=False, slurmArgs=slurmArgs),
             job_queue_dir=TEST_JOB_QUEUE,
             job_output_dir=TEST_JOB_OUTPUT
         )
@@ -2008,9 +2010,9 @@ class MeowTests(unittest.TestCase):
 
         loops = 0
         idles = 0
-        while loops < 600 and idles < 15:
+        while loops < 600 and idles < 45:
             # Initial prompt
-            if conductor_to_test_test.poll(45):
+            if conductor_to_test_test.poll(99999):
                 msg = conductor_to_test_test.recv()
             else:
                 break       
@@ -2018,7 +2020,7 @@ class MeowTests(unittest.TestCase):
             test_to_runner_test.send(msg)
 
             # Reply
-            if test_to_runner_test.poll(15):
+            if test_to_runner_test.poll(99999):
                 msg = test_to_runner_test.recv()
                 if msg == 1:
                     idles += 1
@@ -2033,7 +2035,7 @@ class MeowTests(unittest.TestCase):
         runner.stop()
         print(f"total_loops:{loops}, idle_loops:{idles}")
 
-        jobs = len(os.listdir(TEST_JOB_OUTPUT))
+        jobs = len(os.listdir(TEST_JOB_QUEUE))
         if jobs != (good*3 + big*5 + small*5):
             backup_before_teardown(TEST_JOB_OUTPUT, 
                 f"Backup-predictable-{TEST_JOB_OUTPUT}")
@@ -2043,8 +2045,8 @@ class MeowTests(unittest.TestCase):
                 f"Backup-predictable-{TEST_MONITOR_BASE}")
         
         self.assertEqual(jobs, good*3 + big*5 + small*5)
-        for job_dir in os.listdir(TEST_JOB_OUTPUT):
-            metafile = os.path.join(TEST_JOB_OUTPUT, job_dir, META_FILE)
+        for job_dir in os.listdir(TEST_JOB_QUEUE):
+            metafile = os.path.join(TEST_JOB_QUEUE, job_dir, META_FILE)
             status = read_yaml(metafile)
 
             if JOB_ERROR in status:
@@ -2059,7 +2061,7 @@ class MeowTests(unittest.TestCase):
             self.assertNotIn(JOB_ERROR, status)
 
             result_path = os.path.join(
-                TEST_JOB_OUTPUT, job_dir, "result.ipynb")
+                TEST_JOB_QUEUE, job_dir, "result.ipynb")
             self.assertTrue(os.path.exists(result_path))
 
         results = len(os.listdir(
