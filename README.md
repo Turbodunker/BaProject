@@ -11,5 +11,4 @@ tests/test_runner.py look for MeowTests::SweptPythonExecution core/base_handler.
 Configuration files for the remote is found in remote/ and in root for the local
 
 RECENT COMMIT:
-Removed the "waiting for done-file" check in connect.sh in the remote_slurm_conductor.py and removed the moving of directories from job-queue to output directory in base_conductor.py
-Also changed all instances of "docker" to "podman". This allows for the so called "fire-and-forget-mode" which utilized 2 or more computenodes with sbatch.
+Integrated the RemoteSlurmController into the base conductor and added Dockerfile dependencies for actual scientific work.
